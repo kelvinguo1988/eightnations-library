@@ -5,6 +5,7 @@ manage.py（手动）与 scheduler.py（守护心跳）共用；进程内 HourQu
 """
 import json
 import os
+from typing import Optional
 
 from core.http import HttpClient
 from core.limiter import HourQuota
@@ -73,15 +74,19 @@ def fetch_one(d, row, quality: str, quota: HourQuota) -> bool:
 
 
 def run_source_heartbeat(d, source_id: str, quota_n: int,
-                         quality: str = "auto") -> tuple:
+                         quality: str = "auto",
+                         quota: Optional[HourQuota] = None) -> tuple:
     """对单个源跑一轮心跳：取 queued 至多 quota_n 册逐本下载。
+
+    quota 传入常驻实例（scheduler 持有）→ 真正实现"每小时 ≤ quota_n 册"
+    的滑动窗口；不传则每次新建（CLI 单轮手动语义）。
 
     返回 (尝试册数, 成功册数, 是否因配额提前停止)。
     """
     rows = d.queued_books(source_id, limit=quota_n)
     if not rows:
         return 0, 0, False
-    quota = HourQuota(default_quota=quota_n)
+    quota = quota or HourQuota(default_quota=quota_n)
     tried = ok = 0
     for row in rows:
         cont = fetch_one(d, row, quality, quota)

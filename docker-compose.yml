@@ -12,5 +12,9 @@ services:
       - /share/Container/eightnations/data:/data
     environment:
       - TZ=Asia/Shanghai
+      # 调度心跳间隔（秒），默认 900=15 分钟；拉长更保守
+      # - EIGHTNATIONS_HEARTBEAT=1800
+      # 目录收割每心跳预算（条），默认 40
+      # - EIGHTNATIONS_CATALOG_BUDGET=20
 
 # 如需本地构建（而非拉取镜像）：将 image: 行替换为 build: .

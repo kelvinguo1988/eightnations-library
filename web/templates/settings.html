@@ -2,7 +2,7 @@
 {% block title %}设置 · 八国联军图书馆{% endblock %}
 {% block content %}
 <h2>站点设置</h2>
-<div class="sub">每馆独立的开关、每小时配额与图像档位；保存后调度器在下一心跳生效</div>
+<div class="sub">每馆独立的开关、每小时配额与图像档位；保存后调度器在下一心跳生效。调度心跳默认 15 分钟一轮（容器环境变量 EIGHTNATIONS_HEARTBEAT 可调，秒）</div>
 <form method="post" action="/settings">
 {% for s in sources %}
 <div class="src-card">

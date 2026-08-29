@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""常驻调度守护：每 5 分钟一轮心跳，按 sources 表配置逐源限量下载。
+"""常驻调度守护：默认每 15 分钟一轮心跳，按 sources 表配置逐源限量下载。
 
 "每小时十册、连续数月跑完一个馆"的落地形态：
   * 每轮心跳：① direct 策略馆的目录增量收割（预算制，防封禁）
               ② 从 queued 取书下载（每源每小时 ≤ hourly_quota 册，滑动窗口）；
+  * HourQuota 常驻实例保证滑动窗口跨心跳生效（每小时配额是真实的小时窗）；
+  * 心跳间隔用环境变量 EIGHTNATIONS_HEARTBEAT（秒）调整，默认 900；
   * 大册跨心跳续跑由页级断点保证安全；重启后进程内配额清零，无碍；
   * 事件写库（web 任务面板可读）+ 本地日志。
 
@@ -29,7 +31,7 @@ DATA_DIR = os.environ.get("EIGHTNATIONS_DATA",
                           os.path.join(os.path.dirname(os.path.abspath(__file__)),
                                        "data"))
 DB_PATH = os.path.join(DATA_DIR, "db", "library.db")
-HEARTBEAT_SEC = int(os.environ.get("EIGHTNATIONS_HEARTBEAT", "300"))
+HEARTBEAT_SEC = int(os.environ.get("EIGHTNATIONS_HEARTBEAT", "900"))
 CATALOG_MAX_AGE_S = 7 * 86400        # 目录每周巡检一次（direct 策略馆）
 CATALOG_BUDGET = int(os.environ.get("EIGHTNATIONS_CATALOG_BUDGET", "40"))
 BLOCK_COOLDOWN_S = 30 * 60           # 被站点限流后的冷却期
@@ -105,6 +107,7 @@ def main() -> None:
     d = DB(DB_PATH)
     d.init()
     blocked_until: Dict[str, float] = {}
+    quotas: Dict[str, "object"] = {}     # 常驻实例 → "每小时 N 册"滑动窗口跨心跳生效
     print(f"[scheduler] 启动: 心跳 {HEARTBEAT_SEC}s, 目录预算/心跳 {CATALOG_BUDGET} "
           f"条, db={DB_PATH}", flush=True)
     while True:
@@ -123,11 +126,17 @@ def main() -> None:
                         pass        # 限流冷却中，本轮跳过
                     elif seed_catalog(d, s):
                         blocked_until[s["id"]] = time.time() + BLOCK_COOLDOWN_S
-                # 2) 下载心跳
+                # 2) 下载心跳（常驻 HourQuota：每小时 ≤ hourly_quota 册）
                 if not s["pending"]:
                     continue
+                quota = quotas.get(s["id"])
+                if quota is None or getattr(quota, "default_quota", None) \
+                        != s["hourly_quota"]:
+                    from core.limiter import HourQuota
+                    quota = HourQuota(default_quota=s["hourly_quota"])
+                    quotas[s["id"]] = quota
                 tried, ok, hit = run_source_heartbeat(
-                    d, s["id"], s["hourly_quota"], s["quality"])
+                    d, s["id"], s["hourly_quota"], s["quality"], quota=quota)
                 print(f"[scheduler] {s['id']}: 尝试 {tried} 成功 {ok}"
                       f"{'(配额尽)' if hit else ''}，剩 {s['pending'] - tried} 在队列",
                       flush=True)

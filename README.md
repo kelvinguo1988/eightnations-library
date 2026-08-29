@@ -29,7 +29,7 @@ tools/       loc_snapshot.py(目录快照半自动) · loc_fill_details.py(补�
 fixtures/    真实快照样例（永樂大典 43 条 + 首条详情），用于开发/回归
 data/        本地数据（git 忽略）：db/library.db · books/<馆>/<专藏>/<条目ID>/ · snapshots/
 manage.py    管理CLI
-scheduler.py 常驻调度守护：每 5 分钟心跳，按 sources 表配额逐源限量下载
+scheduler.py 常驻调度守护：默认 15 分钟心跳（EIGHTNATIONS_HEARTBEAT 可调），按 sources 表配额逐源限量下载
 Dockerfile / docker-compose.yml / entrypoint.sh   NAS 容器部署（web+调度同容器）
 ```
 
@@ -52,12 +52,15 @@ python3 manage.py import-na-jp --fonds "https://www.digital.archives.go.jp/fonds
 python3 manage.py books --status discovered              # 看新书（或 web /review 页勾选审批）
 python3 manage.py approve --collection yongle-da-dian    # 批准入库（或 ignore 忽略）
 python3 manage.py fetch-next --source loc --quota 10     # 手动单轮心跳
-nohup python3 scheduler.py >> data/logs/scheduler.log 2>&1 &   # 或常驻守护（每5min心跳×每小时10册）
+nohup python3 scheduler.py >> data/logs/scheduler.log 2>&1 &   # 常驻守护：默认15分钟心跳×每源每小时10册滑动配额
 python3 manage.py stats
 
 # Web 前端
 python3 -m uvicorn web.app:app --host 0.0.0.0 --port 8080     # http://127.0.0.1:8080
 ```
+
+调度节律（防封禁设计）：心跳默认 15 分钟（`EIGHTNATIONS_HEARTBEAT` 秒可调）；
+目录收割每心跳至多 40 条（`EIGHTNATIONS_CATALOG_BUDGET`）；每小时配额为真实滑动窗口。
 
 ## QNAP NAS 部署（M5，镜像已发布 ghcr.io）
 

@@ -2,7 +2,7 @@
 {% block title %}任务面板 · 八国联军图书馆{% endblock %}
 {% block content %}
 <h2>任务面板</h2>
-<div class="sub">调度心跳由 scheduler.py 提供（每 5 分钟）· 累计归档 {{ total_done }} 册 / {{ total_bytes|bytes_h }}</div>
+<div class="sub">调度心跳由 scheduler.py 提供（默认 15 分钟一轮，EIGHTNATIONS_HEARTBEAT 可调）· 累计归档 {{ total_done }} 册 / {{ total_bytes|bytes_h }}</div>
 
 <h2 style="font-size:16px">馆藏进度</h2>
 {% for sid, st in by_source.items() %}
