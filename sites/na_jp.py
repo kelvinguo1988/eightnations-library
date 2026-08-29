@@ -51,32 +51,42 @@ class NaJpAdapter:
         self.http = http
 
     # ---------------- 发现层（站点可直接访问，实时收割） ----------------
-    def harvest_fonds(self, fonds_url: str, max_pages: int = 1,
-                      progress: Optional[Progress] = None) -> List[BookMeta]:
-        """fonds 列表页（如 .../fonds/3611449?page=1）→ 条目元数据。"""
+    def harvest_step(self, catalog_url: str, known_uids=None, budget: int = 40,
+                     max_pages: int = 50, on_meta=None) -> Dict[str, Any]:
+        """增量收割一个心跳批次（防封禁设计）。
+
+        站点对"连续约 58 次请求"临时限流，因此：
+          * 每次调用最多抓 budget 个条目（默认 40 < 58），剩余留给下个心跳续传；
+          * 已在库的条目直接跳过（每周巡检时几乎零请求）；
+          * 连续 3 个条目失败视为被限流，立即中止并上报 blocked。
+
+        on_meta(meta) 逐条回调（调用方即时入库，中断不丢进度）。
+        返回 {ids, fetched, skipped, blocked, exhausted}。
+        """
+        known = known_uids or set()
         ids: List[str] = []
-        m = re.search(r"/fonds/(\d+)", fonds_url)
+        m = re.search(r"/fonds/(\d+)", catalog_url)
         fonds_id = m.group(1) if m else ""
+        blocked = False
         for page in range(1, max_pages + 1):
-            url = fonds_url if max_pages == 1 else \
+            url = catalog_url if (max_pages == 1 or not fonds_id) else \
                 f"{BASE}/fonds/{fonds_id}?page={page}"
-            html = self.http.get(url) or ""
-            found = re.findall(r"/img/(\d+)", html)
-            if not found:
+            html = self.http.get(url)
+            if html is None:
+                blocked = True          # 列表页都拿不到：已被限流
                 break
-            new = [i for i in found if i not in ids]
+            new = [i for i in re.findall(r"/img/(\d+)", html) if i not in ids]
+            if not new:
+                break
             ids.extend(new)
-            if progress:
-                progress.tick(len(new), 0)
-        out: List[BookMeta] = []
-        fail_streak = 0
-        for vid in ids:
+        todo = [i for i in ids if i not in known]
+        fetched, fail_streak = 0, 0
+        for vid in todo:
             mf = _manifest(self.http, vid)
             if not mf or not mf.get("sequences"):
-                # 站点对连续请求约 58 次后限流：连续失败即中止本轮，
-                # 已抓到的先入库，剩余由下次巡检（每周/重启）补齐
                 fail_streak += 1
-                if fail_streak >= 5:
+                if fail_streak >= 3:    # 连续失败 = 被限流，本轮到此为止
+                    blocked = True
                     break
                 continue
             fail_streak = 0
@@ -87,7 +97,7 @@ class NaJpAdapter:
                 cover = cover.get("@id", "")
             elif isinstance(cover, list):
                 cover = cover[0].get("@id", "") if cover else ""
-            out.append(BookMeta(
+            meta = BookMeta(
                 source_uid=vid,
                 title=label or f"item_{vid}",
                 collection=f"fonds-{fonds_id}" if fonds_id else "",
@@ -96,7 +106,26 @@ class NaJpAdapter:
                 item_url=f"{BASE}/img/{vid}",
                 cover_url=str(cover or ""),
                 page_files=[[]],
-                raw=mf))
+                raw=mf)
+            if on_meta:
+                on_meta(meta)
+            fetched += 1
+            if budget and fetched >= budget:
+                break
+        return {"ids": len(ids), "fetched": fetched,
+                "skipped": len([i for i in ids if i in known]),
+                "blocked": blocked,
+                "exhausted": (not blocked) and fetched < (budget or 10 ** 9)}
+
+    def harvest_fonds(self, fonds_url: str, max_pages: int = 1,
+                      progress: Optional[Progress] = None) -> List[BookMeta]:
+        """一次性全量收割（CLI 用；调度器请用 harvest_step 防封禁）。"""
+        out: List[BookMeta] = []
+        stats = self.harvest_step(
+            fonds_url, known_uids=None,
+            budget=0, max_pages=max_pages if max_pages > 1 else 50,
+            on_meta=(lambda m: (out.append(m),
+                                progress.tick(1, 0) if progress else None)))
         return out
 
     def parse_snapshot(self, payload: Any, collection_slug: str = ""

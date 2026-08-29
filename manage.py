@@ -130,20 +130,30 @@ def cmd_fetch_next(args) -> None:
 
 
 def cmd_import_na_jp(args) -> None:
-    """国立公文書館 fonds 实时收割入库（站点对脚本友好，无需快照）。"""
+    """国立公文書館 fonds 实时收割入库（预算制增量，防封禁；中断可重跑续传）。"""
     from sites.na_jp import NaJpAdapter
     d = db()
     adapter = NaJpAdapter(HttpClient())
-    metas = adapter.harvest_fonds(args.fonds, max_pages=args.pages)
-    if not metas:
-        sys.exit("未收割到条目（检查 fonds URL 或站点限流）")
+    with d.connect() as conn:
+        known = {r["source_uid"] for r in conn.execute(
+            "SELECT source_uid FROM books WHERE source_id='na_jp'")}
     new = 0
-    for meta in metas:
+
+    def on_meta(meta):
+        nonlocal new
         if d.upsert_book("na_jp", meta.__dict__):
             new += 1
+
+    stats = adapter.harvest_step(args.fonds, known_uids=known,
+                                 budget=args.budget, max_pages=args.pages,
+                                 on_meta=on_meta)
     counts = d.count_by_status("na_jp")
-    print(f"收割 {len(metas)} 册（新书 {new}）；状态 {counts}")
-    print("下一步: python3 manage.py approve --source na_jp")
+    warn = "；⚠️ 遇站点限流，稍后重跑同一命令自动续传" if stats["blocked"] else ""
+    print(f"总 {stats['ids']} 条，新抓 {stats['fetched']}（新书 {new}），"
+          f"跳过已存在 {stats['skipped']}{warn}")
+    print(f"状态 {counts}")
+    if stats["fetched"] or stats["blocked"]:
+        print("下一步: python3 manage.py approve --source na_jp")
 
 
 def cmd_import_details(args) -> None:
@@ -247,7 +257,9 @@ def main() -> None:
     p = sub.add_parser("import-na-jp")
     p.add_argument("--fonds", required=True,
                    help="fonds 列表页 URL，如 .../fonds/3611449?page=1")
-    p.add_argument("--pages", type=int, default=1, help="收割列表页数")
+    p.add_argument("--pages", type=int, default=50, help="最多扫的列表页数")
+    p.add_argument("--budget", type=int, default=0,
+                   help="单次最多抓取条目数（0=不限；默认不限，被限流时重跑续传）")
     p.set_defaults(func=cmd_import_na_jp)
 
     p = sub.add_parser("retry")
