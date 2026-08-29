@@ -7,9 +7,9 @@
 import json
 import os
 import sys
-from typing import Optional
+from typing import List, Optional
 
-from fastapi import FastAPI, Form, Request, Response
+from fastapi import FastAPI, File, Form, Request, Response, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -17,6 +17,7 @@ from fastapi.templating import Jinja2Templates
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from core.db import DB, utcnow                   # noqa: E402
+from core.importer import import_snapshot_files  # noqa: E402
 from core.pipeline import fetch_one              # noqa: E402
 from core.limiter import HourQuota               # noqa: E402
 
@@ -221,12 +222,41 @@ async def settings_save(request: Request):
         enabled = 1 if form.get(f"enabled_{sid}") else 0
         quota = max(1, int(form.get(f"quota_{sid}") or 10))
         quality = form.get(f"quality_{sid}") or "auto"
+        catalog_url = (form.get(f"catalog_url_{sid}") or "").strip()
         with d.connect() as conn:
             conn.execute(
-                "UPDATE sources SET enabled=?, hourly_quota=?, quality=? WHERE id=?",
-                (enabled, quota, quality, sid))
+                "UPDATE sources SET enabled=?, hourly_quota=?, quality=?, "
+                "catalog_url=? WHERE id=?",
+                (enabled, quota, quality, catalog_url, sid))
     d.log("更新站点设置")
     return RedirectResponse("/settings", status_code=303)
+
+
+@app.post("/upload-snapshot")
+async def upload_snapshot(source: str = Form(...),
+                          files: List[UploadFile] = File(...)):
+    """Web 端导入目录快照（snapshot 策略馆在 NAS 上的自助通道）。"""
+    d = get_db()
+    known = {r["id"] for r in
+             d.connect().execute("SELECT id FROM sources").fetchall()}
+    if source not in known:
+        return JSONResponse({"error": f"未知来源 {source}"}, status_code=400)
+    ts_dir = os.path.join(DATA_DIR, "snapshots", source,
+                          "upload_" + utcnow().replace(":", ""))
+    os.makedirs(ts_dir, exist_ok=True)
+    saved = 0
+    for f in files:
+        name = os.path.basename(f.filename or "")
+        if name.endswith(".json"):
+            with open(os.path.join(ts_dir, name), "wb") as out:
+                out.write(await f.read())
+            saved += 1
+    if not saved:
+        return JSONResponse({"error": "未收到 .json 文件"}, status_code=400)
+    new, updated = import_snapshot_files(d, source, ts_dir)
+    d.log(f"Web 上传快照: {saved} 个文件（新书 {new}，更新 {updated}）",
+          source=source)
+    return RedirectResponse("/review", status_code=303)
 
 
 # ---------------------------------------------------------------- API

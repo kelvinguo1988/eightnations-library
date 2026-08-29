@@ -22,6 +22,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from core.db import DB                               # noqa: E402
 from core.http import HttpClient                     # noqa: E402
+from core.importer import import_snapshot_files      # noqa: E402
 from core.pipeline import fetch_one, run_source_heartbeat, row_to_meta  # noqa: E402
 from sites import get_adapter                        # noqa: E402
 from sites.loc import LocAdapter                     # noqa: E402
@@ -42,56 +43,13 @@ def db() -> DB:
 # ---------------------------------------------------------------- import
 def cmd_import_snapshot(args) -> None:
     d = db()
-    target = args.target
-    if os.path.isdir(target):
-        files = [os.path.join(target, f) for f in sorted(os.listdir(target))
-                 if f.startswith("collection_") and f.endswith(".json")]
-        items_dir = target
-    else:
-        files = [target]
-        items_dir = os.path.dirname(target)
-    if not files:
-        sys.exit(f"未找到 collection_*.json: {target}")
-
-    adapter = get_adapter(args.source, HttpClient())
-    new_total = update_total = 0
-    for path in files:
-        with open(path, "r", encoding="utf-8") as f:
-            payload = json.load(f)
-        if not (isinstance(payload, dict) and "results" in payload):
-            print(f"[跳过] 不是集合快照: {path}")
-            continue
-        metas = adapter.parse_snapshot(payload, args.collection or "")
-        # 合并同目录 item_<lccn>.json 详情（补逐页文件表；pdf 直链集合级已带）
-        by_uid = {m.source_uid: m for m in metas}
-        merged = 0
-        if os.path.isdir(items_dir):
-            for name in os.listdir(items_dir):
-                m = re.match(r"item_(.+)\.json$", name)
-                if not m or m.group(1) not in by_uid:
-                    continue
-                try:
-                    with open(os.path.join(items_dir, name), "r",
-                              encoding="utf-8") as f:
-                        detail = json.load(f)
-                except Exception:
-                    continue
-                LocAdapter._merge_resources(by_uid[m.group(1)],
-                                            detail.get("resources"))
-                merged += 1
-        for meta in metas:
-            is_new = d.upsert_book(args.source, meta.__dict__)
-            if is_new:
-                new_total += 1
-                row = d.find_book(args.source, meta.source_uid)
-                d.log(f"新书发现: {meta.alt_title or meta.title}",
-                      source=args.source, book_id=row["id"] if row else None)
-            else:
-                update_total += 1
-        print(f"[导入] {os.path.basename(path)}: {len(metas)} 条 "
-              f"(合并条目详情 {merged} 个)")
+    new, updated = import_snapshot_files(d, args.source, args.target,
+                                         args.collection or "")
+    if new == 0 and updated == 0:
+        print(f"[跳过] 未找到可用快照: {args.target}")
+        return
     counts = d.count_by_status(args.source)
-    print(f"完成：新书 {new_total}，更新 {update_total}；当前状态 {counts}")
+    print(f"完成：新书 {new}，更新 {updated}；当前状态 {counts}")
     print("下一步: python3 manage.py approve --collection <slug> 或 --id N")
 
 

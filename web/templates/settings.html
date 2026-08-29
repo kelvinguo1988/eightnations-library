@@ -23,10 +23,28 @@
       </select>
     </label>
     <div class="mut">
-      {% set st = counts.get('__'+s['id']) %}
       <a href="/?source={{ s['id'] }}" class="mut">查看馆藏 →</a>
     </div>
   </div>
+  <div style="margin-top:14px">
+    <label class="mut">目录 URL{% if s['meta_strategy'] == 'direct' %}（direct 策略：容器自动收割新书并每周巡检）{% else %}（snapshot 策略：由快照导入，此栏留空）{% endif %}
+      <input type="text" name="catalog_url_{{ s['id'] }}" value="{{ s['catalog_url'] or '' }}"
+             placeholder="https://…/fonds/xxxxx?page=1"
+             style="width:100%;margin-top:6px;background:var(--panel2);border:1px solid var(--line);color:var(--tx);border-radius:6px;padding:7px 10px;font-size:13px">
+    </label>
+  </div>
+  {% if s['meta_strategy'] == 'snapshot' %}
+  <div style="margin-top:14px">
+    <form method="post" action="/upload-snapshot" enctype="multipart/form-data"
+          style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+      <input type="hidden" name="source" value="{{ s['id'] }}">
+      <input type="file" name="files" multiple accept=".json" required
+             style="color:var(--tx2);font-size:13px">
+      <button class="btn primary" type="submit">导入快照 JSON</button>
+      <span class="mut">支持 collection_*.json 与 item_*.json 多选；由 tools/loc_snapshot.py 产出或浏览器另存</span>
+    </form>
+  </div>
+  {% endif %}
 </div>
 {% endfor %}
 <button class="btn primary" type="submit">保存设置</button>

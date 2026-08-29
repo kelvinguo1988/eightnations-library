@@ -21,7 +21,9 @@ CREATE TABLE IF NOT EXISTS sources(
   enabled INTEGER NOT NULL DEFAULT 0,
   hourly_quota INTEGER NOT NULL DEFAULT 10,
   quality TEXT NOT NULL DEFAULT 'auto',      -- auto/pdf/orig/mid/thumb
-  meta_strategy TEXT NOT NULL DEFAULT 'snapshot'
+  meta_strategy TEXT NOT NULL DEFAULT 'snapshot',
+  catalog_url TEXT DEFAULT '',               -- direct 策略: 目录页 URL（自动收割）
+  last_catalog_at TEXT DEFAULT ''            -- 上次收割时间（7 天巡检）
 );
 CREATE TABLE IF NOT EXISTS books(
   id INTEGER PRIMARY KEY,
@@ -77,10 +79,12 @@ CREATE TABLE IF NOT EXISTS events(
 );
 """
 
+# (id, name, country, flag, adapter, enabled, hourly_quota, quality, meta_strategy, catalog_url)
 _DEFAULT_SOURCES = [
-    ("loc", "美国国会图书馆", "美国", "🇺🇸", "loc", 1, 10, "auto", "snapshot"),
-    ("na_jp", "日本国立公文書館", "日本", "🇯🇵", "na_jp", 0, 10, "auto", "direct"),
-    ("ndl_jp", "日本国立国会图书馆", "日本", "🇯🇵", "ndl_jp", 0, 10, "auto", "direct"),
+    ("loc", "美国国会图书馆", "美国", "🇺🇸", "loc", 1, 10, "auto", "snapshot", ""),
+    ("na_jp", "日本国立公文書館", "日本", "🇯🇵", "na_jp", 1, 10, "auto", "direct",
+     "https://www.digital.archives.go.jp/fonds/3611449?page=1"),
+    ("ndl_jp", "日本国立国会图书馆", "日本", "🇯🇵", "ndl_jp", 0, 10, "auto", "direct", ""),
 ]
 
 
@@ -105,11 +109,27 @@ class DB:
     def init(self) -> None:
         with self._lock, self.connect() as conn:
             conn.executescript(_SCHEMA)
+            # 老库迁移：补新列（新库建表时已含，ALTER 跳过）
+            cols = {r["name"] for r in conn.execute("PRAGMA table_info(sources)")}
+            if "catalog_url" not in cols:
+                conn.execute("ALTER TABLE sources ADD COLUMN catalog_url TEXT DEFAULT ''")
+            if "last_catalog_at" not in cols:
+                conn.execute("ALTER TABLE sources ADD COLUMN last_catalog_at TEXT DEFAULT ''")
             for row in _DEFAULT_SOURCES:
                 conn.execute(
                     "INSERT OR IGNORE INTO sources(id,name,country,flag,adapter,"
-                    "enabled,hourly_quota,quality,meta_strategy) "
-                    "VALUES(?,?,?,?,?,?,?,?,?)", row)
+                    "enabled,hourly_quota,quality,meta_strategy,catalog_url) "
+                    "VALUES(?,?,?,?,?,?,?,?,?,?)", row)
+            # 老库回填 na_jp 默认目录
+            conn.execute(
+                "UPDATE sources SET catalog_url=? "
+                "WHERE id='na_jp' AND (catalog_url IS NULL OR catalog_url='')",
+                (_DEFAULT_SOURCES[1][9],))
+
+    def set_catalog_time(self, source_id: str) -> None:
+        with self._lock, self.connect() as conn:
+            conn.execute("UPDATE sources SET last_catalog_at=? WHERE id=?",
+                         (utcnow(), source_id))
 
     # ---- books ----
     def upsert_book(self, source_id: str, meta: Dict[str, Any]) -> bool:
