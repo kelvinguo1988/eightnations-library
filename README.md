@@ -59,14 +59,26 @@ python3 manage.py stats
 python3 -m uvicorn web.app:app --host 0.0.0.0 --port 8080     # http://127.0.0.1:8080
 ```
 
-## QNAP NAS 部署（M5）
+## QNAP NAS 部署（M5，镜像已发布 ghcr.io）
 
+镜像：`ghcr.io/kelvinguo1988/eightnations-library:latest`（linux/amd64 + linux/arm64 双架构，
+由 GitHub Actions 在每次 main 推送 / v* 标签时自动构建发布）。
+
+**Container Station 步骤**：
+1. File Station 先建共享文件夹 `/share/Container/eightnations/data`（存数据库与书）
+2. Container Station → 应用程序 → 创建应用程序 → 粘贴仓库里的 `docker-compose.yml` → 创建
+3. 打开 `http://<NAS_IP>:8080`
+
+或 SSH 直接：
 ```bash
-# NAS 上（Container Station 或 SSH）：
-docker buildx build --platform linux/amd64 -t eightnations:latest .   # x86 机型；ARM 用 linux/arm64
+mkdir -p /share/Container/eightnations/data
+cd /share/Container/eightnations
+curl -O https://raw.githubusercontent.com/kelvinguo1988/eightnations-library/main/docker-compose.yml
 docker compose up -d
-# 打开 http://<NAS_IP>:8080
 ```
+
+首次启动自动建库；之后把 Mac 上的 `data/` 拷过去即可继承已归档书目，或从零开始采集。
+版本发布：`git tag v0.1 && git push --tags` 会额外产出 `:0.1` 镜像（latest 始终跟随 main）。
 
 ## 已知待办
 
