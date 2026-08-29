@@ -1,10 +1,9 @@
 # 八国联军图书馆 · QNAP NAS 部署
-# Container Station: 应用程序 -> 创建 -> 粘贴本文件
+# Container Station: 应用程序 -> 创建 -> 粘贴本文件（自动拉取 ghcr 镜像，无需在 NAS 构建）
 # 数据落盘: /share/Container/eightnations/data（按实际共享目录调整）
 services:
   app:
-    build: .
-    image: eightnations:latest
+    image: ghcr.io/kelvinguo1988/eightnations-library:latest
     container_name: eightnations
     restart: unless-stopped
     ports:
@@ -13,3 +12,5 @@ services:
       - /share/Container/eightnations/data:/data
     environment:
       - TZ=Asia/Shanghai
+
+# 如需本地构建（而非拉取镜像）：将 image: 行替换为 build: .
