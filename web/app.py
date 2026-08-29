@@ -9,7 +9,7 @@ import os
 import sys
 from typing import Optional
 
-from fastapi import FastAPI, Form, Request
+from fastapi import FastAPI, Form, Request, Response
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -90,7 +90,7 @@ def library(request: Request, q: str = "", source: str = "",
                       "has_pdf": bool(u["pdf"])})
     facets = d.facets(source)
     pages = max(1, (total + per - 1) // per)
-    return templates.TemplateResponse("library.html", common_ctx(
+    return templates.TemplateResponse(request, "library.html", common_ctx(
         request, d, cards=cards, total=total, page=page, pages=pages,
         q=q, f_source=source, f_collection=collection, f_era=era, f_status=status,
         facets=facets))
@@ -113,7 +113,7 @@ def detail(book_id: int, request: Request):
         jobs = conn.execute(
             "SELECT * FROM jobs WHERE book_id=? ORDER BY id DESC LIMIT 5",
             (book_id,)).fetchall()
-    return templates.TemplateResponse("detail.html", common_ctx(
+    return templates.TemplateResponse(request, "detail.html", common_ctx(
         request, d, b=row, urls=u, meta=meta,
         jobs=[dict(j) for j in jobs]))
 
@@ -127,7 +127,7 @@ def review(request: Request, q: str = "", source: str = "",
                         collection=collection, keyword=q, era=era, limit=limit)
     total = d.count_books(status="discovered", source_id=source)
     facets = d.facets(source)
-    return templates.TemplateResponse("review.html", common_ctx(
+    return templates.TemplateResponse(request, "review.html", common_ctx(
         request, d, rows=rows, total=total, q=q, f_source=source,
         f_collection=collection, f_era=era, facets=facets, limit=limit))
 
@@ -197,7 +197,7 @@ def jobs(request: Request):
     by_source = {}
     for r in src_stats:
         by_source.setdefault(r["source_id"], {})[r["status"]] = r["n"]
-    return templates.TemplateResponse("jobs.html", common_ctx(
+    return templates.TemplateResponse(request, "jobs.html", common_ctx(
         request, d, recent=[dict(j) | {"urls": None} for j in recent],
         by_source=by_source, events=[dict(e) for e in events],
         total_bytes=agg["b"], total_done=agg["n"]))
@@ -207,7 +207,7 @@ def jobs(request: Request):
 @app.get("/settings", response_class=HTMLResponse)
 def settings_page(request: Request):
     d = get_db()
-    return templates.TemplateResponse("settings.html", common_ctx(request, d))
+    return templates.TemplateResponse(request, "settings.html", common_ctx(request, d))
 
 
 @app.post("/settings")
@@ -230,6 +230,11 @@ async def settings_save(request: Request):
 
 
 # ---------------------------------------------------------------- API
+@app.get("/favicon.ico")
+def favicon():
+    return Response(status_code=204)
+
+
 @app.get("/api/health")
 def health():
     return {"ok": True, "ts": utcnow(), "db": os.path.exists(DB_PATH)}
