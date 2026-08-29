@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{% block title %}八国联军图书馆{% endblock %}</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<nav class="nav">
+  <div class="nav-inner">
+    <a class="brand" href="/">📚 八国联军图书馆</a>
+    <div class="nav-links">
+      <a href="/" class="{{ 'on' if nav=='library' else '' }}">书库</a>
+      <a href="/review" class="{{ 'on' if nav=='review' else '' }}">新书审核
+        {% if counts.get('discovered') %}<span class="pill">{{ counts['discovered'] }}</span>{% endif %}</a>
+      <a href="/jobs" class="{{ 'on' if nav=='jobs' else '' }}">任务</a>
+      <a href="/settings" class="{{ 'on' if nav=='settings' else '' }}">设置</a>
+    </div>
+    <div class="nav-stats">
+      <span class="ok">✓ {{ counts.get('done', 0) }}</span>
+      <span class="q">队列 {{ counts.get('queued', 0) }}</span>
+    </div>
+  </div>
+</nav>
+<main class="wrap">
+{% block content %}{% endblock %}
+</main>
+<footer>仅收录公开领域资源 · Image credit: 各馆藏机构 · 限速采集 {{ counts.get('done', 0) }} 册已归档</footer>
+</body>
+</html>

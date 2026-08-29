@@ -1,0 +1,308 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""八国联军图书馆 · 管理CLI（手动闭环；常驻批量获取用 scheduler.py）
+
+用法:
+  python3 manage.py init-db
+  python3 manage.py import-snapshot data/snapshots/loc/<时间戳目录> [--source loc]
+  python3 manage.py books [--status discovered] [--source loc] [--kw 永樂]
+  python3 manage.py approve --id 3 | --collection yongle-da-dian
+  python3 manage.py ignore  --id 3 | --collection yongle-da-dian
+  python3 manage.py fetch --id 3 [--quality auto]
+  python3 manage.py fetch-next [--source loc] [--quota 10]   # 单轮心跳
+  python3 manage.py stats
+"""
+import argparse
+import json
+import os
+import re
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+from core.db import DB                               # noqa: E402
+from core.http import HttpClient                     # noqa: E402
+from core.pipeline import fetch_one, run_source_heartbeat, row_to_meta  # noqa: E402
+from sites import get_adapter                        # noqa: E402
+from sites.loc import LocAdapter                     # noqa: E402
+
+DATA_DIR = os.environ.get("EIGHTNATIONS_DATA",
+                          os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                       "data"))
+DB_PATH = os.path.join(DATA_DIR, "db", "library.db")
+
+
+def db() -> DB:
+    d = DB(DB_PATH)
+    os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
+    d.init()
+    return d
+
+
+# ---------------------------------------------------------------- import
+def cmd_import_snapshot(args) -> None:
+    d = db()
+    target = args.target
+    if os.path.isdir(target):
+        files = [os.path.join(target, f) for f in sorted(os.listdir(target))
+                 if f.startswith("collection_") and f.endswith(".json")]
+        items_dir = target
+    else:
+        files = [target]
+        items_dir = os.path.dirname(target)
+    if not files:
+        sys.exit(f"未找到 collection_*.json: {target}")
+
+    adapter = get_adapter(args.source, HttpClient())
+    new_total = update_total = 0
+    for path in files:
+        with open(path, "r", encoding="utf-8") as f:
+            payload = json.load(f)
+        if not (isinstance(payload, dict) and "results" in payload):
+            print(f"[跳过] 不是集合快照: {path}")
+            continue
+        metas = adapter.parse_snapshot(payload, args.collection or "")
+        # 合并同目录 item_<lccn>.json 详情（补逐页文件表；pdf 直链集合级已带）
+        by_uid = {m.source_uid: m for m in metas}
+        merged = 0
+        if os.path.isdir(items_dir):
+            for name in os.listdir(items_dir):
+                m = re.match(r"item_(.+)\.json$", name)
+                if not m or m.group(1) not in by_uid:
+                    continue
+                try:
+                    with open(os.path.join(items_dir, name), "r",
+                              encoding="utf-8") as f:
+                        detail = json.load(f)
+                except Exception:
+                    continue
+                LocAdapter._merge_resources(by_uid[m.group(1)],
+                                            detail.get("resources"))
+                merged += 1
+        for meta in metas:
+            is_new = d.upsert_book(args.source, meta.__dict__)
+            if is_new:
+                new_total += 1
+                row = d.find_book(args.source, meta.source_uid)
+                d.log(f"新书发现: {meta.alt_title or meta.title}",
+                      source=args.source, book_id=row["id"] if row else None)
+            else:
+                update_total += 1
+        print(f"[导入] {os.path.basename(path)}: {len(metas)} 条 "
+              f"(合并条目详情 {merged} 个)")
+    counts = d.count_by_status(args.source)
+    print(f"完成：新书 {new_total}，更新 {update_total}；当前状态 {counts}")
+    print("下一步: python3 manage.py approve --collection <slug> 或 --id N")
+
+
+# ---------------------------------------------------------------- list/stats
+def cmd_books(args) -> None:
+    d = db()
+    rows = d.list_books(status=args.status or "", source_id=args.source or "",
+                        collection=args.collection or "", keyword=args.kw or "",
+                        limit=args.limit, offset=args.offset)
+    for r in rows:
+        title = r["alt_title"] or r["title"]
+        yr = r["year_start"] or "?"
+        print(f"#{r['id']:<4} [{r['status']:<10}] {r['era'] or '—'}{yr}  "
+              f"{title[:46]:<48} {r['shelf_id']}")
+    counts = d.count_by_status(args.source or "")
+    print(f"-- 共 {len(rows)} 行；状态合计 {counts}")
+
+
+def cmd_stats(args) -> None:
+    d = db()
+    with d.connect() as conn:
+        for r in conn.execute(
+                "SELECT source_id, status, COUNT(*) n FROM books "
+                "GROUP BY source_id, status ORDER BY source_id"):
+            print(f"  {r['source_id']:<8} {r['status']:<12} {r['n']}")
+        jobs = conn.execute(
+            "SELECT state, COUNT(*) n, SUM(bytes_done) b FROM jobs "
+            "GROUP BY state").fetchall()
+    for j in jobs:
+        gb = (j["b"] or 0) / 1e9
+        print(f"  jobs {j['state']:<8} {j['n']}  ({gb:.2f} GB)")
+
+
+# ---------------------------------------------------------------- approve/ignore
+def _decide(args, d: DB, status: str) -> None:
+    if args.id:
+        ids = [args.id]
+    else:
+        rows = d.list_books(status="discovered", source_id=args.source or "",
+                            collection=args.collection or "",
+                            keyword=args.kw or "", limit=100000)
+        ids = [r["id"] for r in rows]
+    if not ids:
+        print("没有匹配的 discovered 书目")
+        return
+    for i in ids:
+        d.set_status(i, status)
+    shown = ids if len(ids) < 20 else str(ids[:20]) + "…"
+    print(f"{status}: {len(ids)} 条 -> {shown}")
+
+
+def cmd_approve(args) -> None:
+    _decide(args, db(), "queued")
+
+
+def cmd_ignore(args) -> None:
+    _decide(args, db(), "ignored")
+
+
+# ---------------------------------------------------------------- fetch
+def cmd_fetch(args) -> None:
+    d = db()
+    row = d.get_book(args.id)
+    if not row:
+        sys.exit(f"无此书 id={args.id}")
+    from core.limiter import HourQuota
+    fetch_one(d, row, args.quality, HourQuota(default_quota=10 ** 6))
+
+
+def cmd_fetch_next(args) -> None:
+    d = db()
+    tried, ok, hit_quota = run_source_heartbeat(d, args.source, args.quota,
+                                                args.quality)
+    if hit_quota:
+        print("达到每小时配额，本轮结束")
+    counts = d.count_by_status(args.source)
+    print(f"[{args.source}] 本轮尝试 {tried} 本，成功 {ok}；状态 {counts}")
+
+
+def cmd_import_na_jp(args) -> None:
+    """国立公文書館 fonds 实时收割入库（站点对脚本友好，无需快照）。"""
+    from sites.na_jp import NaJpAdapter
+    d = db()
+    adapter = NaJpAdapter(HttpClient())
+    metas = adapter.harvest_fonds(args.fonds, max_pages=args.pages)
+    if not metas:
+        sys.exit("未收割到条目（检查 fonds URL 或站点限流）")
+    new = 0
+    for meta in metas:
+        if d.upsert_book("na_jp", meta.__dict__):
+            new += 1
+    counts = d.count_by_status("na_jp")
+    print(f"收割 {len(metas)} 册（新书 {new}）；状态 {counts}")
+    print("下一步: python3 manage.py approve --source na_jp")
+
+
+def cmd_import_details(args) -> None:
+    """把 tools/loc_fill_details.py 采到的 item_<lccn>.json 合并进已有书目。"""
+    d = db()
+    if not os.path.isdir(args.target):
+        sys.exit(f"目录不存在: {args.target}")
+    merged = gained_pdf = still_missing = 0
+    for name in sorted(os.listdir(args.target)):
+        m = re.match(r"item_(.+)\.json$", name)
+        if not m:
+            continue
+        row = d.find_book("loc", m.group(1))
+        if not row:
+            continue
+        try:
+            with open(os.path.join(args.target, name), "r", encoding="utf-8") as f:
+                detail = json.load(f)
+        except Exception:
+            continue
+        meta = row_to_meta(row)
+        LocAdapter._merge_resources(meta, detail.get("resources"))
+        d.upsert_book("loc", meta.__dict__)
+        merged += 1
+        if any(meta.pdf_urls):
+            gained_pdf += 1
+        elif not any(meta.page_files):
+            still_missing += 1
+    print(f"合并 {merged} 条（新获官方PDF {gained_pdf} 条，"
+          f"仍无可用图像 {still_missing} 条）。"
+          f"对 failed 书目执行: python3 manage.py retry --failed 或在任务面板点重试")
+
+
+def cmd_retry(args) -> None:
+    d = db()
+    if args.failed:
+        rows = d.list_books(status="failed", source_id=args.source or "loc",
+                            limit=100000)
+        ids = [r["id"] for r in rows]
+    elif args.id:
+        ids = [args.id]
+    else:
+        sys.exit("需要 --id N 或 --failed")
+    for i in ids:
+        d.set_status(i, "queued")
+    print(f"重排 {len(ids)} 条 -> queued")
+
+
+# ---------------------------------------------------------------- main
+def main() -> None:
+    ap = argparse.ArgumentParser(description="八国联军图书馆 CLI")
+    sub = ap.add_subparsers(dest="cmd", required=True)
+
+    sub.add_parser("init-db").set_defaults(func=lambda a: (
+        db(), print(f"数据库已初始化: {DB_PATH}")))
+
+    p = sub.add_parser("import-snapshot")
+    p.add_argument("target")
+    p.add_argument("--source", default="loc")
+    p.add_argument("--collection", default="")
+    p.set_defaults(func=cmd_import_snapshot)
+
+    p = sub.add_parser("books")
+    p.add_argument("--status", default="")
+    p.add_argument("--source", default="")
+    p.add_argument("--collection", default="")
+    p.add_argument("--kw", default="")
+    p.add_argument("--limit", type=int, default=100)
+    p.add_argument("--offset", type=int, default=0)
+    p.set_defaults(func=cmd_books)
+
+    p = sub.add_parser("approve")
+    p.add_argument("--id", type=int)
+    p.add_argument("--source", default="")
+    p.add_argument("--collection", default="")
+    p.add_argument("--kw", default="")
+    p.set_defaults(func=cmd_approve)
+
+    p = sub.add_parser("ignore")
+    p.add_argument("--id", type=int)
+    p.add_argument("--source", default="")
+    p.add_argument("--collection", default="")
+    p.add_argument("--kw", default="")
+    p.set_defaults(func=cmd_ignore)
+
+    p = sub.add_parser("fetch")
+    p.add_argument("--id", type=int, required=True)
+    p.add_argument("--quality", default="auto")
+    p.set_defaults(func=cmd_fetch)
+
+    p = sub.add_parser("fetch-next")
+    p.add_argument("--source", default="loc")
+    p.add_argument("--quota", type=int, default=10)
+    p.add_argument("--quality", default="auto")
+    p.set_defaults(func=cmd_fetch_next)
+
+    p = sub.add_parser("import-details")
+    p.add_argument("target")
+    p.set_defaults(func=cmd_import_details)
+
+    p = sub.add_parser("import-na-jp")
+    p.add_argument("--fonds", required=True,
+                   help="fonds 列表页 URL，如 .../fonds/3611449?page=1")
+    p.add_argument("--pages", type=int, default=1, help="收割列表页数")
+    p.set_defaults(func=cmd_import_na_jp)
+
+    p = sub.add_parser("retry")
+    p.add_argument("--id", type=int)
+    p.add_argument("--failed", action="store_true")
+    p.add_argument("--source", default="loc")
+    p.set_defaults(func=cmd_retry)
+
+    sub.add_parser("stats").set_defaults(func=cmd_stats)
+
+    args = ap.parse_args()
+    args.func(args)
+
+
+if __name__ == "__main__":
+    main()

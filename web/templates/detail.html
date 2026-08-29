@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% block title %}{{ b['alt_title'] or b['title'] }} · 八国联军图书馆{% endblock %}
+{% block content %}
+<h2>书目详情 <span class="badge {{ b['status'] }}">{{ b['status'] }}</span></h2>
+<div class="detail-top">
+  <div class="cov">
+    {% if urls.cover_exists %}<img src="{{ urls.cover }}" alt="封面">
+    {% else %}<div class="cov card" style="height:300px;display:flex;align-items:center;justify-content:center"><span style="font-size:60px;color:var(--tx3)">書</span></div>{% endif %}
+  </div>
+  <div>
+    <dl class="kv">
+      <dt>题名（原）</dt><dd>{{ b['alt_title'] or '—' }}</dd>
+      <dt>题名（罗马字）</dt><dd>{{ b['title'] or '—' }}</dd>
+      <dt>年代</dt><dd>{{ (b['era'] or '—') }} {{ b['year_start'] or '' }}{% if b['year_end'] and b['year_end'] != b['year_start'] %}–{{ b['year_end'] }}{% endif %}</dd>
+      <dt>来源馆</dt><dd>🇺🇸 美国国会图书馆 · 专藏 {{ b['collection'] or '—' }}</dd>
+      <dt>架藏号</dt><dd>{{ b['shelf_id'] or '—' }}</dd>
+      <dt>馆藏 ID</dt><dd>{{ b['source_uid'] }}（{{ b['volume_count'] or 1 }} 卷 / 约 {{ b['page_count'] or '?' }} 页）</dd>
+      <dt>权利</dt><dd class="mut">{{ b['rights'][:160] or '—' }}</dd>
+      <dt>原馆页面</dt><dd><a href="{{ b['item_url'] }}" target="_blank">{{ b['item_url'] }}</a></dd>
+      <dt>本地路径</dt><dd class="mut">data/books/{{ urls.rel }}/</dd>
+    </dl>
+    <div class="btn-row">
+      {% if urls.pdf %}<a class="btn primary" href="{{ urls.pdf }}" target="_blank">📖 在线阅读</a>
+      <a class="btn" href="{{ urls.pdf }}" download>⬇ 下载 PDF</a>
+      {% else %}<span class="mut">PDF 尚未下载（状态 {{ b['status'] }}）</span>{% endif %}
+    </div>
+    {% if meta %}
+    <div class="mut">采集记录：{{ meta.pages }} 页 · {{ meta.bytes|bytes_h }} · {{ meta.quality }} 档 · {{ meta.downloaded_at }} · sha256 {{ meta.files[0].sha256[:16] }}…</div>
+    {% endif %}
+  </div>
+</div>
+
+{% if urls.pdf %}
+<embed class="pdf" src="{{ urls.pdf }}#toolbar=1&view=FitH" type="application/pdf">
+{% endif %}
+
+<h2 style="margin-top:34px">下载任务</h2>
+{% if jobs %}
+<table>
+<tr><th>任务</th><th>状态</th><th>页数</th><th>体积</th><th>时间</th><th>错误</th></tr>
+{% for j in jobs %}
+<tr><td>#{{ j['id'] }} · {{ j['quality'] }}</td>
+    <td><span class="badge {{ j['state'] if j['state'] in ('done','failed') else 'running' }}">{{ j['state'] }}</span></td>
+    <td>{{ j['pages_done'] }}/{{ j['pages_total'] or '?' }}</td>
+    <td>{{ j['bytes_done']|bytes_h }}</td>
+    <td class="mut">{{ j['started_at'] }}{% if j['finished_at'] %} → {{ j['finished_at'] }}{% endif %}</td>
+    <td class="mut">{{ (j['last_error'] or '')[:80] }}</td></tr>
+{% endfor %}
+</table>
+{% else %}<div class="empty">暂无任务</div>{% endif %}
+{% endblock %}

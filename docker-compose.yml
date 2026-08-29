@@ -1,0 +1,15 @@
+# 八国联军图书馆 · QNAP NAS 部署
+# Container Station: 应用程序 -> 创建 -> 粘贴本文件
+# 数据落盘: /share/Container/eightnations/data（按实际共享目录调整）
+services:
+  app:
+    build: .
+    image: eightnations:latest
+    container_name: eightnations
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    volumes:
+      - /share/Container/eightnations/data:/data
+    environment:
+      - TZ=Asia/Shanghai

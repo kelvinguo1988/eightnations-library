@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% block title %}书库 · 八国联军图书馆{% endblock %}
+{% block content %}
+<h2>书库</h2>
+<div class="sub">共 {{ total }} 册符合条件 · 已归档 {{ counts.get('done',0) }} 册</div>
+<form class="filters" method="get" action="/">
+  <input type="text" name="q" value="{{ q }}" placeholder="书名 / 架藏号 关键字">
+  <select name="source">
+    <option value="">全部馆</option>
+    {% for s in sources %}<option value="{{ s['id'] }}" {{ 'selected' if f_source==s['id'] }}> {{ s['flag'] }} {{ s['name'] }}</option>{% endfor %}
+  </select>
+  <select name="collection">
+    <option value="">全部专藏</option>
+    {% for c in facets.collections %}<option value="{{ c }}" {{ 'selected' if f_collection==c }}>{{ c }}</option>{% endfor %}
+  </select>
+  <select name="era">
+    <option value="">全部朝代</option>
+    {% for e in facets.eras %}<option value="{{ e }}" {{ 'selected' if f_era==e }}>{{ e }}</option>{% endfor %}
+  </select>
+  <select name="status">
+    {% for st in ['done','queued','discovered','failed','ignored','running'] %}
+    <option value="{{ st }}" {{ 'selected' if f_status==st }}>{{ st }}</option>{% endfor %}
+  </select>
+  <button type="submit">筛选</button>
+</form>
+
+{% if cards %}
+<div class="grid">
+  {% for c in cards %}
+  <a class="card" href="/books/{{ c.row['id'] }}">
+    <div class="cov">
+      {% if c.cover %}<img src="{{ c.cover }}" loading="lazy" alt="">
+      {% else %}<span class="ph">{{ (c.row['alt_title'] or c.row['title'] or '书')[:1] }}</span>{% endif %}
+    </div>
+    <div class="bd">
+      <div class="t" title="{{ c.row['alt_title'] or c.row['title'] }}">{{ c.row['alt_title'] or c.row['title'] }}</div>
+      <div class="m">
+        <span>{{ c.row['era'] }}{{ c.row['year_start'] or '' }}</span>
+        <span>{{ c.row['source_id'] }}</span>
+        {% if c.has_pdf %}<span class="badge done">PDF</span>{% endif %}
+      </div>
+    </div>
+  </a>
+  {% endfor %}
+</div>
+{% else %}
+<div class="empty">没有符合条件的书目 —— 去「新书审核」批准入库，或等待调度器下载</div>
+{% endif %}
+
+{% if pages > 1 %}
+<div class="pager">
+  {% if page > 1 %}<a href="/?q={{ q }}&source={{ f_source }}&collection={{ f_collection }}&era={{ f_era }}&status={{ f_status }}&page={{ page-1 }}">‹ 上一页</a>{% endif %}
+  <span class="cur">{{ page }} / {{ pages }}</span>
+  {% if page < pages %}<a href="/?q={{ q }}&source={{ f_source }}&collection={{ f_collection }}&era={{ f_era }}&status={{ f_status }}&page={{ page+1 }}">下一页 ›</a>{% endif %}
+</div>
+{% endif %}
+{% endblock %}

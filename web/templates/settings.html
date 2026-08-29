@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block title %}设置 · 八国联军图书馆{% endblock %}
+{% block content %}
+<h2>站点设置</h2>
+<div class="sub">每馆独立的开关、每小时配额与图像档位；保存后调度器在下一心跳生效</div>
+<form method="post" action="/settings">
+{% for s in sources %}
+<div class="src-card">
+  <div class="hd">{{ s['flag'] }} {{ s['name'] }} <span class="mut">({{ s['id'] }} · 适配器 sites/{{ s['adapter'] }}.py · 目录策略 {{ s['meta_strategy'] }})</span></div>
+  <div class="src-grid">
+    <label style="display:flex;align-items:center;gap:8px">
+      <input type="checkbox" name="enabled_{{ s['id'] }}" {{ 'checked' if s['enabled'] }} style="width:16px;height:16px;accent-color:var(--acc2)">
+      启用下载
+    </label>
+    <label class="mut">每小时配额（册）
+      <input type="number" name="quota_{{ s['id'] }}" value="{{ s['hourly_quota'] }}" min="1" max="120"
+             style="width:80px;background:var(--panel2);border:1px solid var(--line);color:var(--tx);border-radius:6px;padding:6px 8px;margin-left:8px">
+    </label>
+    <label class="mut">图像档位
+      <select name="quality_{{ s['id'] }}" style="background:var(--panel2);border:1px solid var(--line);color:var(--tx);border-radius:6px;padding:6px 8px;margin-left:8px">
+        {% for q in ['auto','pdf','orig','mid','thumb'] %}
+        <option value="{{ q }}" {{ 'selected' if s['quality']==q }}>{{ q }}</option>{% endfor %}
+      </select>
+    </label>
+    <div class="mut">
+      {% set st = counts.get('__'+s['id']) %}
+      <a href="/?source={{ s['id'] }}" class="mut">查看馆藏 →</a>
+    </div>
+  </div>
+</div>
+{% endfor %}
+<button class="btn primary" type="submit">保存设置</button>
+</form>
+
+<div class="src-card" style="margin-top:26px">
+  <div class="hd">采集约定</div>
+  <div class="mut" style="line-height:1.9">
+    · 仅采集 rights 为公有领域/无已知版权限制的条目，meta.json 记录原馆链接与校验和<br>
+    · 每域串行 + 最小间隔（tile 1s / 元数据站 3s）+ 随机抖动，诚实 UA<br>
+    · 目录快照低频人工刷新：python3 tools/loc_snapshot.py --headed --with-items<br>
+    · 调度守护：nohup python3 scheduler.py（NAS 部署后随容器常驻）
+  </div>
+</div>
+{% endblock %}

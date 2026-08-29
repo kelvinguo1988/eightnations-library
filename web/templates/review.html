@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% block title %}新书审核 · 八国联军图书馆{% endblock %}
+{% block content %}
+<h2>新书审核</h2>
+<div class="sub">发现未处理 <b style="color:var(--warn)">{{ total }}</b> 册 · 勾选后批量「入库下载」或「忽略」；入库后由调度器按每馆配额自动获取</div>
+<form class="filters" method="get" action="/review">
+  <input type="text" name="q" value="{{ q }}" placeholder="书名 / 架藏号 关键字">
+  <select name="source">
+    <option value="">全部馆</option>
+    {% for s in sources %}<option value="{{ s['id'] }}" {{ 'selected' if f_source==s['id'] }}>{{ s['flag'] }} {{ s['name'] }}</option>{% endfor %}
+  </select>
+  <select name="collection">
+    <option value="">全部专藏</option>
+    {% for c in facets.collections %}<option value="{{ c }}" {{ 'selected' if f_collection==c }}>{{ c }}</option>{% endfor %}
+  </select>
+  <select name="era">
+    <option value="">全部朝代</option>
+    {% for e in facets.eras %}<option value="{{ e }}" {{ 'selected' if f_era==e }}>{{ e }}</option>{% endfor %}
+  </select>
+  <button type="submit">筛选</button>
+</form>
+
+<div class="btn-row">
+  <button class="btn primary" onclick="decide('approve')">✓ 入库下载（勾选）</button>
+  <button class="btn danger" onclick="decide('ignore')">✗ 忽略（勾选）</button>
+  <label class="mut" style="display:flex;align-items:center;gap:6px"><input type="checkbox" id="selall" onchange="selAll(this)"> 全选本页</label>
+  <span class="mut">当前筛选 {{ rows|length }} 条 / 未处理共 {{ total }} 条</span>
+</div>
+
+{% if rows %}
+<table>
+<tr><th style="width:34px"></th><th>题名</th><th style="width:90px">年代</th><th style="width:150px">专藏</th><th style="width:150px">架藏号</th><th style="width:80px">官方PDF</th></tr>
+{% for r in rows %}
+<tr class="review-row">
+  <td><input type="checkbox" class="ck" value="{{ r['id'] }}"></td>
+  <td><a href="/books/{{ r['id'] }}">{{ r['alt_title'] or r['title'] }}</a></td>
+  <td>{{ r['era'] }}{{ r['year_start'] or '' }}</td>
+  <td class="mut">{{ r['collection'] or '—' }}</td>
+  <td class="mut">{{ r['shelf_id'] }}</td>
+  <td>{% if r['pdf_urls'] != '[]' %}<span class="badge done">有</span>{% else %}<span class="badge ignored">无</span>{% endif %}</td>
+</tr>
+{% endfor %}
+</table>
+{% else %}<div class="empty">🎉 没有待审核的新书</div>{% endif %}
+
+<script>
+function selAll(el){document.querySelectorAll('.ck').forEach(c=>c.checked=el.checked)}
+async function decide(action){
+  const ids=[...document.querySelectorAll('.ck:checked')].map(c=>+c.value);
+  if(!ids.length){alert('请先勾选书目');return}
+  if(!confirm((action==='approve'?'入库下载 ':'忽略 ')+ids.length+' 册？'))return;
+  const r=await fetch('/api/review',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({action,ids})});
+  if(r.ok){location.reload()}else{alert('操作失败: '+(await r.text()))}
+}
+</script>
+{% endblock %}

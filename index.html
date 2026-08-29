@@ -1,0 +1,352 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>八国联军八国 · 国家级图书馆藏中国典籍数字化清单</title>
+<style>
+:root{
+  --bg:#12141a; --panel:#1a1d25; --panel2:#21252f; --line:#2c313d;
+  --tx:#e6e8ee; --tx2:#a4abbb; --tx3:#737b8d;
+  --acc:#7aa2f7; --acc2:#9ece6a; --warn:#e0af68; --red:#f7768e; --cyan:#7dcfff;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--tx);font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;line-height:1.75;font-size:15px}
+.wrap{max-width:1100px;margin:0 auto;padding:48px 28px 96px}
+header{border-bottom:1px solid var(--line);padding-bottom:28px;margin-bottom:36px}
+h1{font-size:29px;font-weight:700;letter-spacing:-.3px;line-height:1.35}
+.sub{color:var(--tx2);margin-top:12px;font-size:14.5px}
+.meta{color:var(--tx3);font-size:12.5px;margin-top:14px}
+h2{font-size:20px;margin:52px 0 18px;padding-left:12px;border-left:3px solid var(--acc);font-weight:650}
+h3{font-size:16.5px;margin:26px 0 10px;font-weight:650;color:var(--cyan)}
+p,li{color:var(--tx)}
+p{margin:10px 0}
+.note{background:var(--panel);border:1px solid var(--line);border-left:3px solid var(--warn);padding:16px 18px;border-radius:6px;margin:20px 0;font-size:14px;color:var(--tx2)}
+.note strong{color:var(--warn)}
+.note.blue{border-left-color:var(--acc)}
+.note.blue strong{color:var(--acc)}
+table{width:100%;border-collapse:collapse;margin:16px 0;font-size:13.5px;background:var(--panel);border-radius:8px;overflow:hidden}
+th{background:var(--panel2);text-align:left;padding:11px 13px;font-weight:600;color:var(--tx2);font-size:12.5px;letter-spacing:.3px;border-bottom:1px solid var(--line)}
+td{padding:11px 13px;border-bottom:1px solid var(--line);vertical-align:top;color:var(--tx)}
+tr:last-child td{border-bottom:none}
+tr:hover td{background:#1e222b}
+a{color:var(--acc);text-decoration:none;word-break:break-all;border-bottom:1px solid rgba(122,162,247,.28)}
+a:hover{color:var(--acc2);border-bottom-color:var(--acc2)}
+code{background:var(--panel2);padding:1.5px 6px;border-radius:4px;font-family:"SF Mono",Menlo,Consolas,monospace;font-size:12.5px;color:var(--acc2)}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:22px 24px;margin:22px 0}
+.card .hd{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;margin-bottom:4px}
+.flag{font-size:26px;line-height:1}
+.card h3{margin:0;font-size:18px;color:var(--tx)}
+.tag{display:inline-block;background:var(--panel2);border:1px solid var(--line);color:var(--tx2);font-size:11.5px;padding:2px 9px;border-radius:20px;margin:0 6px 6px 0}
+.tag.on{background:rgba(158,206,106,.13);border-color:rgba(158,206,106,.35);color:var(--acc2)}
+.tag.no{background:rgba(247,118,142,.12);border-color:rgba(247,118,142,.32);color:var(--red)}
+.inst{color:var(--tx3);font-size:13px;margin-bottom:14px}
+.kv{display:grid;grid-template-columns:96px 1fr;gap:6px 16px;font-size:14px;margin:12px 0}
+.kv dt{color:var(--tx3);font-size:13px}
+.kv dd{color:var(--tx)}
+ul.plat{list-style:none;margin:12px 0 0}
+ul.plat li{background:var(--panel2);border:1px solid var(--line);border-radius:7px;padding:11px 14px;margin-bottom:8px;font-size:13.5px}
+ul.plat li .nm{font-weight:600;color:var(--tx);display:block;margin-bottom:2px}
+ul.plat li .ds{color:var(--tx3);font-size:12.5px;display:block;margin-top:3px}
+.bars{margin:18px 0}
+.bar{display:grid;grid-template-columns:150px 1fr 76px;align-items:center;gap:12px;margin-bottom:9px;font-size:13px}
+.bar .lb{color:var(--tx2)}
+.bar .tr{background:var(--panel2);height:20px;border-radius:4px;overflow:hidden}
+.bar .fl{height:100%;background:linear-gradient(90deg,#5b7fc7,#7aa2f7);border-radius:4px}
+.bar .vl{text-align:right;color:var(--tx2);font-variant-numeric:tabular-nums;font-size:12.5px}
+.bar.other .fl{background:linear-gradient(90deg,#6b6b7a,#8b8b9c)}
+.legend{display:flex;gap:20px;flex-wrap:wrap;font-size:12.5px;color:var(--tx3);margin-top:8px}
+.legend i{display:inline-block;width:11px;height:11px;border-radius:3px;margin-right:6px;vertical-align:-1px}
+footer{margin-top:64px;padding-top:24px;border-top:1px solid var(--line);color:var(--tx3);font-size:12.5px}
+.toc{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:16px 20px;margin:24px 0;font-size:13.5px}
+.toc a{margin-right:18px;display:inline-block;line-height:2}
+@media(max-width:720px){.wrap{padding:28px 16px 60px}.kv{grid-template-columns:1fr}.bar{grid-template-columns:110px 1fr 62px}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>八国联军八国 · 国家级图书馆藏中国典籍数字化清单</h1>
+  <div class="sub">英 · 法 · 德 · 俄 · 日 · 美 · 意 · 奥匈（含继承国）八国的国家级文献收藏机构，哪些把源自中国的典籍扫成了高清图像、放在了公网上，以及去哪里下载。</div>
+  <div class="meta">整理时间：2026年8月｜数据口径：国际敦煌项目（IDP）2023年7月18日图像计数、各馆官方公告、京都大学高田时雄《意大利漢籍的搜集》等</div>
+</header>
+
+<div class="toc">
+  <a href="#dist">① 先分清两种"掠夺"</a>
+  <a href="#table">② 八国总表</a>
+  <a href="#uk">③ 英国</a>
+  <a href="#fr">④ 法国</a>
+  <a href="#de">⑤ 德国</a>
+  <a href="#ru">⑥ 俄国</a>
+  <a href="#jp">⑦ 日本</a>
+  <a href="#us">⑧ 美国</a>
+  <a href="#it">⑨ 意大利</a>
+  <a href="#at">⑩ 奥匈 / 奥地利</a>
+  <a href="#howto">⑪ 检索方法与编号体系</a>
+</div>
+
+<h2 id="dist">① 先分清两种"掠夺"：这一点决定了你会查到什么</h2>
+
+<p>各国国家图书馆里"上传的中国古籍"，来源其实是两拨，性质和时间都不一样。混为一谈会直接导致检索方向跑偏。</p>
+
+<div class="note blue">
+<strong>A 类｜1900年庚子之变的直接劫掠。</strong>八国联军攻入北京后，与英国使馆一墙之隔的<strong>翰林院</strong>沦为战场并起火。院内藏的《永乐大典》残本、《四库全书》底本、宋元善本、雕版印版，或被焚毁，或被当砖石垫工事、糊马槽，或被使馆人员与士兵带走。仅《永乐大典》一项，庚子一役至少遗失 <strong>605 册</strong>。这类书<strong>数量少、极珍贵、几乎没有系统数字化</strong>——除了美国国会图书馆把 41 册《永乐大典》全部扫了，其余基本还躺在库房里。
+</div>
+
+<div class="note">
+<strong>B 类｜1900年前后各国考察队在西北的获取。</strong>敦煌藏经洞（1900年发现）、吐鲁番、黑水城、楼兰、于阗……斯坦因（英）、伯希和（法）、奥登堡（俄）、科兹洛夫（俄）、大谷探险队（日）、格伦威德尔与勒柯克（德）在 1900–1915 年间把这些遗址的写本、绢画、印本成箱运走。<strong>今天各国国家图书馆"上传"的中国典籍，绝大部分是这一类</strong>，而且数字化程度非常高——因为 1994 年起有个"国际敦煌项目"（IDP）在做全球统一数字化。
+</div>
+
+<p>所以这份清单的主体是 B 类（可直接在线下载高清图），A 类单列在各国条目里的"庚子劫掠专档"一栏。</p>
+
+<h2 id="table">② 八国总表</h2>
+
+<table>
+<thead><tr><th style="width:52px">国</th><th style="width:190px">机构</th><th>主要来源</th><th style="width:88px">是否<br>已上传</th><th style="width:130px">核心入口</th></tr></thead>
+<tbody>
+<tr><td>🇬🇧 英</td><td>大英图书馆</td><td>斯坦因收集品（敦煌/西域）、《永乐大典》24册、甲骨</td><td><span class="tag on">大规模</span></td><td>IDP 主站</td></tr>
+<tr><td>🇫🇷 法</td><td>法国国家图书馆</td><td>伯希和收集品（敦煌汉/藏/回鹘/粟特文）</td><td><span class="tag on">已全部</span></td><td>Gallica</td></tr>
+<tr><td>🇩🇪 德</td><td>柏林国家图书馆＋柏林勃兰登堡科学院</td><td>吐鲁番收集品（4次吐鲁番探险队）</td><td><span class="tag on">已全部</span></td><td>数字吐鲁番档案</td></tr>
+<tr><td>🇷🇺 俄</td><td>俄罗斯科学院东方文献研究所（IOM RAS）</td><td>奥登堡敦煌文献、科兹洛夫黑水城西夏文献</td><td><span class="tag on">部分</span></td><td>IDP 俄文站</td></tr>
+<tr><td>🇯🇵 日</td><td>国立国会图书馆（＋东洋文库、龙谷大学）</td><td>滨田德海旧藏敦煌写卷、大谷探险队收集品</td><td><span class="tag on">部分</span></td><td>NDL 数字馆藏</td></tr>
+<tr><td>🇺🇸 美</td><td>国会图书馆</td><td>《永乐大典》41册、中国善本 5,300 种、敦煌写本若干</td><td><span class="tag on">大规模</span></td><td>LoC 数字馆藏</td></tr>
+<tr><td>🇮🇹 意</td><td>罗马国立中央图书馆</td><td>意军在义和团事件中掳获的约 6,000 册汉籍（诺全提尼移交）</td><td><span class="tag no">基本未数字化</span></td><td>Teca Digitale</td></tr>
+<tr><td>🇦🇹 奥</td><td>奥地利国家图书馆（汉学藏书室）</td><td>夏士、骆司同等外交官/汉学家购藏（非直接掠夺）</td><td><span class="tag no">少量</span></td><td>ÖNB 数字馆藏</td></tr>
+</tbody>
+</table>
+
+<h3>IDP 数据库各中心已上传图像数（截至 2023-07-18，总量 586,857 幅）</h3>
+<div class="bars">
+  <div class="bar"><span class="lb">中国国家图书馆</span><span class="tr"><span class="fl" style="width:100%"></span></span><span class="vl">228,975</span></div>
+  <div class="bar"><span class="lb">大英图书馆</span><span class="tr"><span class="fl" style="width:89.8%"></span></span><span class="vl">205,510</span></div>
+  <div class="bar"><span class="lb">柏林勃兰登堡科学院</span><span class="tr"><span class="fl" style="width:31.1%"></span></span><span class="vl">71,145</span></div>
+  <div class="bar"><span class="lb">法国国家图书馆</span><span class="tr"><span class="fl" style="width:24.3%"></span></span><span class="vl">55,683</span></div>
+  <div class="bar"><span class="lb">俄东方文献研究所</span><span class="tr"><span class="fl" style="width:9.9%"></span></span><span class="vl">22,672</span></div>
+  <div class="bar"><span class="lb">龙谷大学（京都）</span><span class="tr"><span class="fl" style="width:7.6%"></span></span><span class="vl">17,364</span></div>
+  <div class="bar"><span class="lb">敦煌研究院</span><span class="tr"><span class="fl" style="width:1.3%"></span></span><span class="vl">2,872</span></div>
+</div>
+<p style="color:var(--tx3);font-size:13px">所有图像可在 IDP 统一检索、免费下载（商用或出版需另行向藏馆申请授权）。</p>
+
+<!-- ===== 英国 ===== -->
+<div class="card" id="uk">
+  <div class="hd"><span class="flag">🇬🇧</span><h3>英国 · 大英图书馆（British Library）</h3></div>
+  <div class="inst">IDP 国际秘书处所在地｜该馆自身上传图像 16.9 万幅（2016）→ 20.5 万幅（2023）</div>
+  <span class="tag on">B类：敦煌/西域写本</span><span class="tag">A类：永乐大典 24 册</span><span class="tag">甲骨 450+ 片</span>
+
+  <dl class="kv">
+    <dt>来源</dt><dd>斯坦因（Marc Aurel Stein）四次中亚考察，1907 年从敦煌莫高窟藏经洞（第17窟）王圆箓处取得大宗写本；庚子年间英使馆人员从翰林院所得《永乐大典》。</dd>
+    <dt>规模</dt><dd>中亚写本、印本、绘画合计 <strong>45,000 件以上</strong>；敦煌汉文写本编号至 S.6981–13624 区间（Giles 编目 8,000 余号，另有大量残片）。</dd>
+    <dt>镇馆</dt><dd>咸通九年（868）刻本《金刚经》——世界现存最早有明确纪年的完整印刷书籍（Or.8210/P.2）；《永乐大典》24 册（欧洲最多）；明崇祯《十竹斋书画谱》。</dd>
+    <dt>庚子专档</dt><dd>据翟兰思《北京使馆被围日记》，英人普尔、比金、蒂克纳、柯克、劳德等各有盗取；其中卷 19789–19790 一册最终入藏大英图书馆。</dd>
+    <dt>数字化</dt><dd>IDP 于 2024 年 2 月完成网站与数据库改版，新增 IIIF 查看器与增强检索；2022 年 12 月完成的"法华经项目"单独新增约 17,000 幅。</dd>
+  </dl>
+
+  <h3 style="margin-top:20px">访问地址</h3>
+  <ul class="plat">
+    <li><span class="nm"><a href="https://idp.bl.uk/" target="_blank">https://idp.bl.uk/</a></span>国际敦煌项目主站（英文总库，含英、法、德、俄、日、中各馆藏品）。2024年改版，支持 IIIF 与多语言。
+      <span class="ds">检索入口：<a href="https://idp.bl.uk/collection/" target="_blank">https://idp.bl.uk/collection/</a>　·　站点有 Cloudflare 校验，脚本抓取会返 403，浏览器正常。</span></li>
+    <li><span class="nm"><a href="https://idp.nlc.cn/" target="_blank">http://idp.nlc.cn/</a></span>IDP 中文站（中国国家图书馆托管，界面中文）。<span class="ds">注：<code>idp.nlc.gov.cn</code> 已失效，请用 <code>idp.nlc.cn</code>。</span></li>
+    <li><span class="nm"><a href="https://searcharchives.bl.uk/" target="_blank">https://searcharchives.bl.uk/</a></span>大英图书馆档案与手稿目录，可查《永乐大典》24 册的馆藏记录与数字化链接。
+      <span class="ds">直达：<a href="https://searcharchives.bl.uk/catalog/032-002899011" target="_blank">https://searcharchives.bl.uk/catalog/032-002899011</a>（Yongle dadian, 24 volumes）</span></li>
+  </ul>
+</div>
+
+<!-- ===== 法国 ===== -->
+<div class="card" id="fr">
+  <div class="hd"><span class="flag">🇫🇷</span><h3>法国 · 法国国家图书馆（BnF）</h3></div>
+  <div class="inst">四大敦煌藏家之一，"藏于法国者最精"｜敦煌汉文、藏文写卷已 100% 数字化</div>
+  <span class="tag on">已全部数字化</span><span class="tag">Pelliot chinois</span><span class="tag">Pelliot tibétain</span>
+
+  <dl class="kv">
+    <dt>来源</dt><dd>伯希和（Paul Pelliot）1908 年率法国中亚考察队到敦煌，在藏经洞挑选三周，取走写本、绢画、幡幢等运回巴黎，入藏 BnF 写本部（绘画部分入吉美博物馆）。</dd>
+    <dt>规模</dt><dd><code>Pelliot chinois</code> 约 4,000 余号（P.2001–P.6038 为主体区间）；<code>Pelliot tibétain</code> 约 2,000 余号；另有回鹘、粟特、于阗、梵文等专藏。</dd>
+    <dt>数字化</dt><dd>2008 年 11 月 IDP 巴黎中心成立时，BnF 藏全部敦煌汉文、藏文写卷图像同步上传；全部同时在 Gallica 提供。IDP 巴黎中心图像 55,683 幅。</dd>
+    <dt>工具优势</dt><dd>Gallica 提供 IDP 所无的功能：局部框选下载（magnifying glass + dashed lines 图标）、高倍放大、出版级图像订购。</dd>
+  </dl>
+
+  <h3 style="margin-top:20px">访问地址</h3>
+  <ul class="plat">
+    <li><span class="nm"><a href="https://gallica.bnf.fr/" target="_blank">https://gallica.bnf.fr/</a></span>BnF 数字图书馆。检索方式：先点 "manuscrits" 限定为手稿，再输入架号如 <code>Pelliot chinois 2712</code>。<span class="ds">者可放大、可框选下载，比 IDP 更好用。</span></li>
+    <li><span class="nm"><a href="https://archivesetmanuscrits.bnf.fr/" target="_blank">https://archivesetmanuscrits.bnf.fr/</a></span>BnF 档案与手稿目录，按 Département des Manuscrits → Pelliot chinois 逐级浏览完整架号清单。</li>
+    <li><span class="nm"><a href="https://idp.bnf.fr/" target="_blank">https://idp.bnf.fr/</a></span>IDP 法文站（含吉美博物馆藏品）。<span class="ds">该域名近期在我处测试不可达；若失效请回主站 <a href="https://idp.bl.uk/" target="_blank">idp.bl.uk</a> 检索，BnF 藏品数据已在主库内。</span></li>
+  </ul>
+</div>
+
+<!-- ===== 德国 ===== -->
+<div class="card" id="de">
+  <div class="hd"><span class="flag">🇩🇪</span><h3>德国 · 柏林国家图书馆 ＋ 柏林勃兰登堡科学院</h3></div>
+  <div class="inst">吐鲁番学世界第一大藏家｜40,000 件残片全部完成数字化（1997–2013）</div>
+  <span class="tag on">已全部数字化</span><span class="tag">Ch / Ch-U / SHT / THT</span><span class="tag">A类：永乐大典 5 册</span>
+
+  <dl class="kv">
+    <dt>来源</dt><dd>1902–1914 年德国四次"吐鲁番探险队"（格伦威德尔 Albert Grünwedel、勒柯克 Albert von Le Coq）在吐鲁番盆地、库车、哈密等地掘获。1996 年起 BBAW 委托柏林国家图书馆东方部托管。</dd>
+    <dt>规模</dt><dd>约 <strong>40,000 件</strong>残片，产出 <strong>69,890 幅</strong>数字图像。汉文部分：<code>Ch</code> 4,306 件 / 8,734 图；<code>Ch/U</code>（汉文-回鹘文）约 1,600 件 / 4,658 图；另有藏文 146、蒙古文约 100、西夏文 5、满文 1 件。</dd>
+    <dt>重要提醒</dt><dd>大量原始残片<strong>毁于二战</strong>。中国学者王重民 1930 年代在柏林拍摄的一批吐鲁番写本照片，如今是部分文献的唯一存世影像（现存中国国家图书馆，2008 年影印出版为《王重民向达所摄敦煌西域文献照片合集》30 巨册）。</dd>
+    <dt>庚子专档</dt><dd>德国境内今存《永乐大典》5 册（汉堡大学图书馆等）；德人斯泰老庚子年间盗取 3 册；1955 年民主德国归还 3 册（莱比锡大学图书馆藏）。</dd>
+  </dl>
+
+  <h3 style="margin-top:20px">访问地址</h3>
+  <ul class="plat">
+    <li><span class="nm"><a href="https://turfan.bbaw.de/" target="_blank">https://turfan.bbaw.de/</a></span>数字吐鲁番档案（Digitales Turfanarchiv）门户，按编号分组（Ch、U、SHT、THT…）逐件浏览，附已出版目录的 PDF。
+      <span class="ds">英文版项目说明：<a href="https://turfan.bbaw.de/dta-i-en/dta-i%40set_language=en.html" target="_blank">https://turfan.bbaw.de/dta-i-en/dta-i@set_language=en.html</a></span></li>
+    <li><span class="nm"><a href="https://digital.staatsbibliothek-berlin.de/en/collection/turfan" target="_blank">https://digital.staatsbibliothek-berlin.de/en/collection/turfan</a></span>柏林国家图书馆数字馆藏 · 吐鲁番专题。全站检索：<a href="https://digital.staatsbibliothek-berlin.de/" target="_blank">digital.staatsbibliothek-berlin.de</a>。</li>
+    <li><span class="nm"><a href="https://orient-digital.staatsbibliothek-berlin.de/" target="_blank">https://orient-digital.staatsbibliothek-berlin.de/</a></span>东方部数字化项目专页（截至 2021 年 4 月，7,250 卷东方写本完成全文数字化）。</li>
+    <li><span class="nm"><a href="https://idp.bbaw.de/" target="_blank">https://idp.bbaw.de/</a></span>IDP 德文站，图像 71,145 幅。<span class="ds">该域名近期测试不可达；柏林藏品数据已并入 <a href="https://idp.bl.uk/" target="_blank">idp.bl.uk</a> 主库。</span></li>
+    <li><span class="nm"><a href="https://ostasien.digitale-sammlungen.de/" target="_blank">https://ostasien.digitale-sammlungen.de/</a></span>巴伐利亚州立图书馆"东亚数字馆藏"（非八国掠夺主体，但为德区最大中文古籍库：7–19 世纪中文古籍约 1,141 册、90 万张图，支持中/英/德三语界面与无级缩放）。</li>
+  </ul>
+</div>
+
+<!-- ===== 俄国 ===== -->
+<div class="card" id="ru">
+  <div class="hd"><span class="flag">🇷🇺</span><h3>俄国 · 俄罗斯科学院东方文献研究所（IOM RAS）</h3></div>
+  <div class="inst">四大敦煌藏家之一，"藏于俄国者最杂"｜前身亚洲博物馆（1818），功能等同国家级文献库</div>
+  <span class="tag on">部分数字化</span><span class="tag">Дх. / Ф. / TK 系列</span><span class="tag">庚子：曾掠 55 册永乐大典</span>
+
+  <dl class="kv">
+    <dt>来源</dt><dd><strong>敦煌</strong>：奥登堡（S.F. Oldenburg）1914–1915 年第二次中亚考察队，除购得数百件完整文献外，还在藏经洞"挖地三尺"掘取大量残片。<strong>黑水城</strong>：科兹洛夫（P.K. Kozlov）1908–1909 年从内蒙古额济纳黑水城（西夏哈拉浩特）取走大批西夏文、汉文、藏文文献与佛像。</dd>
+    <dt>规模</dt><dd>敦煌文献近 <strong>19,000 号</strong>；黑水城西夏文献为世界最大宗；全所东方写本总量 <strong>8 万件以上</strong>，涵盖 45 种东方语言。</dd>
+    <dt>数字化</dt><dd>IDP 圣彼得堡中心（2004 年成立），图像 22,672 幅——在六大中心里数字化比例最低，大量藏品仍只有纸质目录。</dd>
+    <dt>珍贵独例</dt><dd><code>Ф.32</code>《曹宗寿造经帙疏》，宋咸平五年（1002）写本，是敦煌遗书中现知有确切纪年且年代最晚的一件。</dd>
+    <dt>庚子专档</dt><dd>1900 年俄军参与劫掠翰林院；1950 年代从大连图书馆取走 55 册《永乐大典》，1951–1954 年分三次归还中国（列宁格勒大学东方系 11 册 + 国立列宁图书馆 52 册 + 苏联科学院 1 册）。<strong>按北师大张升教授的推断，剩余未归还的部分很可能仍在俄境</strong>。</dd>
+  </dl>
+
+  <h3 style="margin-top:20px">访问地址</h3>
+  <ul class="plat">
+    <li><span class="nm"><a href="https://www.orientalstudies.ru/eng/" target="_blank">https://www.orientalstudies.ru/eng/</a></span>IOM RAS 官网（英文版有"Collections / Publications / Projects"栏目）。</li>
+    <li><span class="nm"><a href="https://www.orientalstudies.ru/eng/index.php?Itemid=75&amp;option=com_publications" target="_blank">https://www.orientalstudies.ru/eng/index.php?Itemid=75&amp;option=com_publications</a></span>出版物数据库，可下载《Written Monuments of the Orient》等期刊全文 PDF，内有敦煌/黑水城藏品的最新编目与研究。</li>
+    <li><span class="nm"><a href="https://idp.orientalstudies.ru/" target="_blank">https://idp.orientalstudies.ru/</a></span>IDP 俄文站。<span class="ds">该域名近期不可达；俄藏敦煌、黑水城图像请改在 <a href="https://idp.bl.uk/" target="_blank">idp.bl.uk</a> 主库内检索（机构筛选 Institute of Oriental Manuscripts）。</span></li>
+    <li><span class="nm"><a href="https://www.nlr.ru/eng/" target="_blank">https://www.nlr.ru/eng/</a></span>俄罗斯国家图书馆（РНБ，圣彼得堡）亚洲与非洲部，另藏中文、满文、蒙古文古籍，可交叉检索。</li>
+  </ul>
+</div>
+
+<!-- ===== 日本 ===== -->
+<div class="card" id="jp">
+  <div class="hd"><span class="flag">🇯🇵</span><h3>日本 · 国立国会图书馆（NDL）</h3></div>
+  <div class="inst">"藏于日本者最隐最秘"｜日本全国藏《永乐大典》约 60 册，但主体在东洋文库等民间机构</div>
+  <span class="tag on">部分数字化</span><span class="tag">滨田德海旧藏 48 件</span><span class="tag">大谷探险队收集品</span>
+
+  <dl class="kv">
+    <dt>NDL 藏品</dt><dd>敦煌文献 <strong>48 件</strong>（汉文、西夏文、藏文写本），主要来自滨田德海旧藏、经井上书店购入；中文资料约 25 万册；截至 2018 年 3 月公开古籍影像约 9 万件（完全公开 7 万件）。</dd>
+    <dt>珍本</dt><dd>《永乐大典》卷 2279–2281、北宋刊本《姓解》、《古文孝经》、大原三千院旧藏《天台山记》——均为中国国内罕见之本。</dd>
+    <dt>大谷收集品</dt><dd>大谷探险队（1902–1914，西本愿寺法主大谷光瑞派遣）所获西域文书，主要分藏：<strong>龙谷大学图书馆</strong>（IDP 京都中心，图像 17,364 幅）、<strong>东京国立博物馆</strong>（大谷探险队将来品 14 件）、<strong>京都国立博物馆</strong>（守屋孝藏捐赠 72 件）、旅顺博物馆、韩国国立中央博物馆。</dd>
+    <dt>注意</dt><dd>日本藏《永乐大典》约 60 册中的大部分在<strong>东洋文库</strong>与静嘉堂文库——两者都不是国家图书馆，但东洋文库是日本乃至全球最大的汉籍专门图书馆之一。</dd>
+  </dl>
+
+  <h3 style="margin-top:20px">访问地址</h3>
+  <ul class="plat">
+    <li><span class="nm"><a href="https://dl.ndl.go.jp/" target="_blank">https://dl.ndl.go.jp/</a></span>国立国会图书馆数字馆藏（NDL Digital Collections）。检索：<a href="https://dl.ndl.go.jp/search?cs=bib&amp;keyword=%E6%95%A6%E7%85%8C" target="_blank">关键词"敦煌"</a>　/　<a href="https://dl.ndl.go.jp/search?cs=bib&amp;keyword=%E6%B0%B8%E6%A5%BD%E5%A4%A7%E5%85%B8" target="_blank">关键词"永楽大典"</a>。</li>
+    <li><span class="nm"><a href="https://www.toyo-bunko.or.jp/" target="_blank">https://www.toyo-bunko.or.jp/</a></span>东洋文库（日本最大汉籍专门馆，藏中国方志与丛书约 4,000 部、西藏文献 3,100 件等）。</li>
+    <li><span class="nm"><a href="https://dsr.nii.ac.jp/toyobunko/" target="_blank">https://dsr.nii.ac.jp/toyobunko/</a></span>东洋文库数字馆藏检索（含 245 种丝绸之路相关文献、近代外国探险队在中国西北的活动记录、地图、写真）。</li>
+    <li><span class="nm"><a href="https://idp.afc.ryukoku.ac.jp/" target="_blank">https://idp.afc.ryukoku.ac.jp/</a></span>IDP 京都中心（龙谷大学）。<span class="ds">近年时常不可达；大谷收集品图像请改在 <a href="https://idp.bl.uk/" target="_blank">idp.bl.uk</a> 主库检索。</span></li>
+    <li><span class="nm"><a href="https://www.wul.waseda.ac.jp/kotenseki/" target="_blank">https://www.wul.waseda.ac.jp/kotenseki/</a></span>早稻田大学图书馆古籍影像库（汉籍含四库系列、敦煌系列、地方志系列）。</li>
+  </ul>
+</div>
+
+<!-- ===== 美国 ===== -->
+<div class="card" id="us">
+  <div class="hd"><span class="flag">🇺🇸</span><h3>美国 · 国会图书馆（Library of Congress）</h3></div>
+  <div class="inst">A 类数字化做得最彻底的一家｜《永乐大典》41 册全部上线，且是亚洲以外最大宗</div>
+  <span class="tag on">A类完整数字化</span><span class="tag">中国善本 5,300 种</span><span class="tag">迄今未归还</span>
+
+  <dl class="kv">
+    <dt>规模</dt><dd>亚洲部中国善本 <strong>5,300 种</strong>；敦煌写本若干（如"六朝写经残卷 出吐鲁番三堡"、"北魏写本佛经残页"、敦煌写本《胜天王般若波罗蜜多经》卷四）。</dd>
+    <dt>《永乐大典》</dt><dd>藏 <strong>41 册</strong>（不连续卷），2023 年 4 月宣布<strong>全部完成数字化并开放下载</strong>——是首个把整批《永乐大典》免费上线的机构。数字化前做了大量修复处理。<br>来源：20 世纪初通过购买与捐赠入藏。其中卷 13344–13345、19742–19743、19792 三册，据翟兰思自述即庚子年间他从翰林院所劫，后辗转入藏国会图书馆。</dd>
+    <dt>追索状态</dt><dd><strong>41 册迄今未归还中国</strong>。1996 年国际图联大会上，美国得克萨斯大学奥斯汀分校唐纳德·小戴维斯与中山大学程焕文曾就此公开举证，指八国联军劫毁翰林院的罪行"不亚于凯撒烧毁亚历山大图书馆"。</dd>
+    <dt>数字化规模</dt><dd>中国善本数字馆藏约 <strong>2,000 种</strong>（2,032 件），时代跨 11–20 世纪，含宋、元刻本近 30 种，另有若干中国大陆、台湾、香港、日本均不藏的<strong>海内孤本</strong>。</dd>
+  </dl>
+
+  <h3 style="margin-top:20px">访问地址</h3>
+  <ul class="plat">
+    <li><span class="nm"><a href="https://www.loc.gov/collections/yongle-da-dian/" target="_blank">https://www.loc.gov/collections/yongle-da-dian/</a></span>《永乐大典》专藏（41 册 / 43 条记录），全部高清可下载。</li>
+    <li><span class="nm"><a href="https://www.loc.gov/collections/chinese-rare-books/" target="_blank">https://www.loc.gov/collections/chinese-rare-books/</a></span>中国善本数字馆藏（2,032 件）。</li>
+    <li><span class="nm"><a href="https://blogs.loc.gov/international-collections/2023/04/yongle-encyclopedia-volumes-fully-digitized/" target="_blank">https://blogs.loc.gov/.../yongle-encyclopedia-volumes-fully-digitized/</a></span>LoC 官方说明长文，含版本考证、修复过程与高清图。</li>
+  </ul>
+</div>
+
+<!-- ===== 意大利 ===== -->
+<div class="card" id="it">
+  <div class="hd"><span class="flag">🇮🇹</span><h3>意大利 · 罗马国立中央图书馆（BNCR）</h3></div>
+  <div class="inst">八国中"国家图书馆直接接收军队掠夺品"证据最明确的一家，但数字化程度最低</div>
+  <span class="tag no">基本未数字化</span><span class="tag">意军掳获约 6,000 册</span><span class="tag">另 2,600 册经领事馆移交</span>
+
+  <dl class="kv">
+    <dt>关键证据</dt><dd>据京都大学人文科学研究所高田时雄《意大利漢籍的搜集》：义和团事件之际，罗马大学首位汉学教授<strong>诺全提尼（Lodovico Nocentini, 1849–1910）将意大利军队掳掠的约 6,000 册汉籍交存罗马国立中央图书馆</strong>。这些书中多装帧精美的<strong>殿版书</strong>，<strong>"上面还残留着军靴踩踏过的痕迹"</strong>。<br>另有同批掠得、暂存于北京意大利领事馆的 <strong>2,600 册</strong>汉籍，经领事馆通译韦大利（Guido Vitale）之手移交。</dd>
+    <dt>馆藏概况</dt><dd>BNCR 藏中国典籍 <strong>500 余种</strong>，时间跨 16 世纪末至 20 世纪初，涵盖明清小说、戏曲、科考文献、儒释道典籍、西学汉籍、中医古籍。最珍贵者为 16 世纪明抄彩绘本《御制本草品汇精要》，另有《奇器图说》西爽堂本等科技典籍。汉籍数量据称不少于梵蒂冈图书馆。</dd>
+    <dt>其他来源</dt><dd>汉学家汪瑟士（Carlo Valenziani, 1831–1896）藏书约 450 种中日书籍，1877–1896 年间分批由该馆购入或受赠；另有耶稣会士（罗明坚、利玛窦等）带回的中医典籍。</dd>
+    <dt>现状</dt><dd>该批中文典籍<strong>至今无人系统整理，也基本没有数字化</strong>——这是八国中数字化缺口最大的一处，也是追索与学术调查价值最高的目标。</dd>
+  </dl>
+
+  <h3 style="margin-top:20px">访问地址</h3>
+  <ul class="plat">
+    <li><span class="nm"><a href="https://www.bncrm.beniculturali.it/" target="_blank">https://www.bncrm.beniculturali.it/</a></span>罗马国立中央图书馆官网（正式名：维托里奥·埃马努埃莱二世国立中央图书馆）。<span class="ds">备用：<code>bncrm.librari.beniculturali.it</code>。意大利文化部域名对境外 IP 有封锁，国内访问建议走代理。</span></li>
+    <li><span class="nm"><a href="https://digitale.bnc.roma.sbn.it/tecadigitale" target="_blank">https://digitale.bnc.roma.sbn.it/tecadigitale</a></span>Teca Digitale（数字资源库），BNCR 数字化项目成果的发布平台。</li>
+    <li><span class="nm"><a href="https://www.internetculturale.it/" target="_blank">https://www.internetculturale.it/</a></span>意大利文化网络总门户（Internet Culturale），可跨馆检索意大利各国家图书馆数字资源，比单点访问更稳。</li>
+    <li><span class="nm"><a href="https://www.bncf.firenze.sbn.it/" target="_blank">https://www.bncf.firenze.sbn.it/</a></span>佛罗伦萨国立中央图书馆（意大利另一家国家中心馆）。</li>
+    <li><span class="nm"><a href="https://www.zinbun.kyoto-u.ac.jp/~takata/ChineseBooksItaly.pdf" target="_blank">https://www.zinbun.kyoto-u.ac.jp/~takata/ChineseBooksItaly.pdf</a></span><strong>核心参考文献</strong>：高田时雄《意大利漢籍的搜集》（PDF，京都大学），详细考证了意军掠夺汉籍入藏 BNCR 的过程。</li>
+  </ul>
+</div>
+
+<!-- ===== 奥匈 ===== -->
+<div class="card" id="at">
+  <div class="hd"><span class="flag">🇦🇹</span><h3>奥匈帝国 · 奥地利国家图书馆（ÖNB）</h3></div>
+  <div class="inst">需要如实说明：ÖNB 汉籍主要来自外交官购藏，不是奥匈军队的掠夺品</div>
+  <span class="tag no">少量数字化</span><span class="tag">Sinica 汉学藏书室</span><span class="tag">庚子：仅派 1 舰 296 人</span>
+
+  <dl class="kv">
+    <dt>先说清楚</dt><dd>1900 年奥匈帝国在华兵力极小：开战时只有巡洋舰"森塔号"（SMS Zenta）上的 296 名水兵参与，增援的 3 艘巡洋舰与 1 个海军陆战连 <strong>9 月才到，仗已基本打完</strong>。因此奥匈直接经手的掠夺规模远小于其他七国，ÖNB 的汉籍<strong>不宜直接定性为"掠夺品"</strong>。</dd>
+    <dt>实际来源</dt><dd>汉学藏书室（Sinica-Sammlung）核心来自三位：①<strong>夏士</strong>（Joseph Haas, 1845–1896）1838–1890 年间在华陆续采购之书；②<strong>骆司同</strong>（Arthur von Rosthorn, 1862–1945，奥匈驻华使馆翻译、后任驻华公使）约 <strong>3,000 部</strong>私人藏书，1940 年代末入藏，是最大宗；③斡池（Leopold Woitsch）与萝陶诗（Anna Rottauscher）的 320 部。另可上溯至 17 世纪下半叶耶稣会士在华刊印之书。</dd>
+    <dt>规模</dt><dd>中文书籍约 <strong>2,000–3,500 部</strong>（1992 年方立雅编《汉学藏书室目录》收录 2,000 余部；馆方另一口径 3,500 部）。主体为史部与小学，另有中文写本 <code>Cim. Sin.</code> 系列。</dd>
+    <dt>稀见珍本</dt><dd>明崇祯十年（1637）文雅堂刻本《刻全像五显灵官大帝华光天王传》（Sin 240-B，与伦敦英国博物院藏昌远堂本为同源异本，保留了余象斗原刊的部分面貌）；彩绘经折装《聊斋全图》（Sin 384）；《精刻汇编新声雅杂乐府大明天下春》《新刻增补全像乡谈荔枝记》《京本校正全像忠义水浒志传》。</dd>
+  </dl>
+
+  <h3 style="margin-top:20px">访问地址</h3>
+  <ul class="plat">
+    <li><span class="nm"><a href="https://digital.onb.ac.at/" target="_blank">https://digital.onb.ac.at/</a></span>ÖNB 数字馆藏总入口（另可用 <a href="https://onb.digital/" target="_blank">https://onb.digital/</a>）。</li>
+    <li><span class="nm"><a href="https://onb.ac.at/en/departments/department-of-manuscripts-and-rare-books" target="_blank">https://onb.ac.at/en/departments/.../department-of-manuscripts-and-rare-books</a></span>手稿与善本部，含中文写本 <code>Cim. Sin.</code>、日文写本 <code>Cim. Jap.</code> 等分类。</li>
+    <li><span class="nm"><a href="https://onb.ac.at/en/departments/department-of-manuscripts-and-rare-books/bibliography" target="_blank">https://onb.ac.at/en/.../bibliography</a></span>参考书目数据库，可选架号类型（含 Chinese manuscripts <code>Cim. Sin.</code>）精确检索每件藏品的研究文献。</li>
+    <li><span class="nm"><a href="https://china-bibliographie.univie.ac.at/" target="_blank">https://china-bibliographie.univie.ac.at/</a></span>维也纳大学 Bibliotheca Sinica 2.0——奥地利（ÖNB、维也纳大学图书馆、奥地利国家档案馆）藏 1939 年前中国相关文献总目，约 3,000 条，<strong>并逐一给出全球免费数字化版本的链接</strong>。查奥地利汉籍的最佳起点。</li>
+  </ul>
+
+  <h3 style="margin-top:24px">奥匈继承国补充：匈牙利科学院图书馆</h3>
+  <p style="font-size:13.5px;color:var(--tx2)">斯坦因生于布达佩斯，一生自认匈牙利人。他把私人藏书、手稿、照片与书信全部遗赠给<strong>匈牙利科学院图书馆</strong>——这些不是中国原件，但其中约 <strong>7,000–8,000 张斯坦因自摄照片</strong>是敦煌、和田、楼兰等遗址在文物被取走前后的原始影像记录，学术价值极高，且已数字化。</p>
+  <ul class="plat">
+    <li><span class="nm"><a href="http://dunhuang.mtak.hu/" target="_blank">http://dunhuang.mtak.hu/</a></span>数字展《丝绸之路的隐秘宝藏》（2000 年，纪念藏经洞发现一百周年）。</li>
+    <li><span class="nm"><a href="http://stein.mtak.hu/" target="_blank">http://stein.mtak.hu/</a></span>数字展《迷恋东方：奥雷尔·斯坦因的生平与著作》（2008 年香港大学美术馆展）。</li>
+    <li><span class="nm"><a href="https://csoma.mtak.hu/" target="_blank">https://csoma.mtak.hu/</a></span>匈牙利科学院图书馆东方收藏门户（"Manuscripts of the Oriental Collection" 在线目录可检索 Stein 照片子集）。<span class="ds">该域名近期测试不可达，建议由上两个数字展站点进入。</span></li>
+  </ul>
+</div>
+
+<h2 id="howto">⑪ 检索方法与编号体系</h2>
+
+<p>IDP 及各馆数据库<strong>最有效的检索词就是文献编号</strong>。各馆编号体系不同，先查目录拿到号，再进库调图，是最省时间的路径。</p>
+
+<table>
+<thead><tr><th style="width:130px">编号</th><th style="width:150px">藏馆</th><th>含义与查法</th></tr></thead>
+<tbody>
+<tr><td><code>S.####</code> / <code>Or.8210/S.####</code></td><td>大英图书馆</td><td>斯坦因敦煌汉文写本。目录：Giles《Descriptive Catalogue of the Chinese Manuscripts from Tunhuang in the British Museum》、荣新江《英国图书馆藏敦煌汉文非佛教文献残卷目录（S.6981–13624）》。</td></tr>
+<tr><td><code>P.####</code> / <code>Pelliot chinois ####</code></td><td>法国国家图书馆</td><td>伯希和敦煌汉文写本。目录：六卷本《Catalogue des manuscrits chinois de Touen-houang, fonds Pelliot chinois》（1970–2001）。</td></tr>
+<tr><td><code>PT####</code></td><td>法国国家图书馆</td><td>Pelliot tibétain，伯希和敦煌藏文写本。</td></tr>
+<tr><td><code>Ch ####</code> / <code>Ch/U ####</code></td><td>柏林</td><td>吐鲁番汉文 / 汉文-回鹘文残片。目录：《Verzeichnis der Orientalischen Handschriften in Deutschland》《Berliner Turfantexte》。</td></tr>
+<tr><td><code>Дх. ####</code>（Dx.）/<code>Ф.####</code></td><td>俄 IOM RAS</td><td>敦煌文献。目录：《俄藏敦煌文献》（上海古籍出版社＋俄罗斯科学出版社，全 17 册）。</td></tr>
+<tr><td><code>TK ####</code> / <code>Инв. No. ####</code></td><td>俄 IOM RAS</td><td>黑水城（哈拉浩特）西夏文文献。目录：《俄藏黑水城文献》。</td></tr>
+<tr><td><code>BD ####</code></td><td>中国国家图书馆</td><td>北敦号。目录：方广锠《中国国家图书馆藏敦煌遗书总目录》。</td></tr>
+</tbody>
+</table>
+
+<div class="note">
+<strong>三条实用建议：</strong><br>
+1. <strong>先查总目，再进图库。</strong>最通用的总目是《敦煌遗书总目索引新编》（中华书局，2000；缺俄藏）。吐鲁番文书用荣新江主编《吐鲁番文书总目·欧美收藏卷》、陈国灿等主编《·日本收藏卷》。<br>
+2. <strong>善用 IDP 的"目录查找"功能。</strong>选定某一目录（如 Boltz《Non-Buddhist Documents from Dunhuang in the British Library》），可一次性列出该目录著录的全部条目，并直接链到对应图像——绕开编号记忆负担。<br>
+3. <strong>IDP 支持"急需文献优先数字化"。</strong>把卷号告知 IDP 工作室，只要文献状态允许拍摄，可插队处理。这是公开的服务承诺。<br><br>
+<strong>访问限制提示：</strong><code>idp.bl.uk</code> 与 <code>loc.gov</code> 有 Cloudflare / 机器人校验（脚本抓取返 403，浏览器正常）；意大利文化部域名（<code>*.beniculturali.it</code>、<code>digitale.bnc.roma.sbn.it</code>）与部分俄、匈站点对境外 IP 不稳，建议备用线路。
+</div>
+
+<footer>
+数据来源：国际敦煌项目（IDP）官方统计与 newsletters、英国 AHRC/GtR 项目记录、德国 DFG GEPRIS 项目库、BBAW Turfanforschung、美国国会图书馆官方公告与 blogs、京都大学人文科学研究所高田时雄《意大利漢籍的搜集》、中国国家图书馆《俄罗斯访学记》、人民政协网《〈永乐大典〉的聚散离合》、中国新闻周刊《存世的〈永乐大典〉只剩4%》、Encyclopaedia Iranica "International Dunhuang Project" 条目、Österreichische Nationalbibliothek 与 Bibliotheca Sinica 2.0 官网。<br><br>
+本清单仅列举可公开访问的已数字化资源及其来源脉络，供学术研究、文化遗产调查与追索线索使用。馆藏性质（掠夺 / 购买 / 受赠）依各国公布史料标注，个别条目学界仍有争议。
+</footer>
+
+</div>
+</body>
+</html>

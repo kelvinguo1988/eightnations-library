@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% block title %}任务面板 · 八国联军图书馆{% endblock %}
+{% block content %}
+<h2>任务面板</h2>
+<div class="sub">调度心跳由 scheduler.py 提供（每 5 分钟）· 累计归档 {{ total_done }} 册 / {{ total_bytes|bytes_h }}</div>
+
+<h2 style="font-size:16px">馆藏进度</h2>
+{% for sid, st in by_source.items() %}
+<div class="src-card">
+  <div class="hd">🇺🇸 {{ sid }}</div>
+  {% set done = st.get('done',0) %}{% set total_n = st.values()|sum %}
+  <div class="bar" title="{{ done }}/{{ total_n }}">
+    <i style="width:{{ (done*100/total_n)|round(1) if total_n else 0 }}%;background:var(--acc2)"></i>
+    <i style="width:{{ (st.get('queued',0)*100/total_n)|round(1) if total_n else 0 }}%;background:var(--acc)"></i>
+    <i style="width:{{ (st.get('failed',0)*100/total_n)|round(1) if total_n else 0 }}%;background:var(--red)"></i>
+  </div>
+  <div class="mut" style="margin-top:8px">
+    {% for s, n in st.items() %}<span class="badge {{ s }}">{{ s }} {{ n }}</span> {% endfor %}
+    <span style="float:right">{{ done }}/{{ total_n }}（{{ (done*100/total_n)|round(1) if total_n else 0 }}%）</span>
+  </div>
+</div>
+{% endfor %}
+
+<h2 style="font-size:16px">最近任务</h2>
+<table>
+<tr><th>#</th><th>书</th><th>状态</th><th>页数</th><th>体积</th><th>开始时间</th><th>错误 / 操作</th></tr>
+{% for j in recent %}
+<tr>
+  <td>{{ j['id'] }}</td>
+  <td><a href="/books/{{ j['book_id'] }}">{{ (j['alt_title'] or j['title'])[:36] }}</a><div class="mut">{{ j['source_id'] }} · {{ j['quality'] }}</div></td>
+  <td><span class="badge {{ j['state'] if j['state'] in ('done','failed') else 'running' }}">{{ j['state'] }}</span></td>
+  <td>{{ j['pages_done'] }}/{{ j['pages_total'] or '?' }}</td>
+  <td>{{ j['bytes_done']|bytes_h }}</td>
+  <td class="mut">{{ j['started_at'] }}</td>
+  <td class="mut">
+    {% if j['state'] in ('failed',) %}{{ (j['last_error'] or '')[:60] }}
+      <button class="btn" style="padding:2px 10px;font-size:12px" onclick="retry({{ j['book_id'] }},this)">重试</button>
+    {% elif j['last_error'] %}{{ j['last_error'][:60] }}{% endif %}
+  </td>
+</tr>
+{% endfor %}
+</table>
+
+<h2 style="font-size:16px;margin-top:30px">事件日志</h2>
+<div style="background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:10px 16px">
+{% for e in events %}
+<div class="ev"><span class="mut">{{ e['ts'] }}</span> <span class="lvl-{{ e['level'] }}">[{{ e['level'] }}]</span> {% if e['source'] %}<span class="mut">{{ e['source'] }}</span> {% endif %}{{ e['message'][:150] }}</div>
+{% endfor %}
+</div>
+<script>
+async function retry(id, btn){
+  btn.disabled = true; btn.textContent = '…';
+  const r = await fetch('/api/retry',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id})});
+  if(r.ok){location.reload()}else{btn.textContent='失败';}
+}
+</script>
+{% endblock %}

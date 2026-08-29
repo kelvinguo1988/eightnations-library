@@ -1,0 +1,11 @@
+# 运行依赖（Python 3.9+）
+requests>=2.26
+pypdf>=3.0
+
+# 快照工具 tools/loc_snapshot.py --headed 需要（半自动过盾）
+playwright>=1.40
+
+# 开发/测试
+pillow>=9.0
+
+# 调度器为纯标准库实现（scheduler.py），无额外依赖
