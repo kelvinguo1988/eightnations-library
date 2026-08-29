@@ -69,10 +69,17 @@ class NaJpAdapter:
             if progress:
                 progress.tick(len(new), 0)
         out: List[BookMeta] = []
+        fail_streak = 0
         for vid in ids:
             mf = _manifest(self.http, vid)
             if not mf or not mf.get("sequences"):
+                # 站点对连续请求约 58 次后限流：连续失败即中止本轮，
+                # 已抓到的先入库，剩余由下次巡检（每周/重启）补齐
+                fail_streak += 1
+                if fail_streak >= 5:
+                    break
                 continue
+            fail_streak = 0
             label, cids = _label_cids(mf)
             cover = (mf.get("sequences", [{}])[0].get("canvases") or
                      [{}])[0].get("thumbnail", "")

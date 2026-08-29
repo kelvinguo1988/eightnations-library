@@ -66,7 +66,8 @@ def seed_catalog(d: DB, s) -> None:
         print(f"[scheduler] {s['id']}: 收割失败 {e}", flush=True)
         return
     new = sum(1 for m in metas if d.upsert_book(s["id"], m.__dict__))
-    d.set_catalog_time(s["id"])
+    if metas:
+        d.set_catalog_time(s["id"])     # 空结果(如站点限流)不标记，下个心跳重试
     d.log(f"目录自动收割: {len(metas)} 条（新书 {new}），待人工审核",
           source=s["id"])
     print(f"[scheduler] {s['id']}: 收割 {len(metas)} 条（新书 {new}）", flush=True)
