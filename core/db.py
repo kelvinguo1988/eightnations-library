@@ -35,6 +35,7 @@ CREATE TABLE IF NOT EXISTS books(
   era TEXT DEFAULT '',
   year_start INTEGER, year_end INTEGER,
   language TEXT DEFAULT '',
+  subjects TEXT DEFAULT '[]',      -- JSON: 主题词/分类
   item_url TEXT DEFAULT '',
   cover_url TEXT DEFAULT '',
   cover_path TEXT DEFAULT '',
@@ -115,6 +116,9 @@ class DB:
                 conn.execute("ALTER TABLE sources ADD COLUMN catalog_url TEXT DEFAULT ''")
             if "last_catalog_at" not in cols:
                 conn.execute("ALTER TABLE sources ADD COLUMN last_catalog_at TEXT DEFAULT ''")
+            bcols = {r["name"] for r in conn.execute("PRAGMA table_info(books)")}
+            if "subjects" not in bcols:
+                conn.execute("ALTER TABLE books ADD COLUMN subjects TEXT DEFAULT '[]'")
             for row in _DEFAULT_SOURCES:
                 conn.execute(
                     "INSERT OR IGNORE INTO sources(id,name,country,flag,adapter,"
@@ -141,7 +145,9 @@ class DB:
             "title": meta.get("title", ""), "alt_title": meta.get("alt_title", ""),
             "author": meta.get("author", ""), "era": meta.get("era", ""),
             "year_start": meta.get("year_start"), "year_end": meta.get("year_end"),
-            "language": meta.get("language", ""), "item_url": meta.get("item_url", ""),
+            "language": meta.get("language", ""),
+            "subjects": json.dumps(meta.get("subjects") or [], ensure_ascii=False),
+            "item_url": meta.get("item_url", ""),
             "cover_url": meta.get("cover_url", ""), "collection": meta.get("collection", ""),
             "volume_count": meta.get("volume_count", 0),
             "page_count": meta.get("page_count", 0), "rights": meta.get("rights", ""),
@@ -152,10 +158,16 @@ class DB:
         }
         with self._lock, self.connect() as conn:
             cur = conn.execute(
-                "SELECT id FROM books WHERE source_id=? AND source_uid=?",
+                "SELECT id, subjects, pdf_urls, files_json FROM books "
+                "WHERE source_id=? AND source_uid=?",
                 (source_id, meta["source_uid"]))
             row = cur.fetchone()
             if row:
+                # 合并保护：新快照缺某字段(空值)时不覆盖库中已有数据
+                # （如早期紧凑快照无 subject、集合级无逐页清单）
+                for k in ("subjects", "pdf_urls", "files_json"):
+                    if cols[k] in ("[]", "") and (row[k] or "[]") not in ("[]", ""):
+                        cols[k] = row[k]
                 sets = ",".join(f"{k}=?" for k in cols)
                 conn.execute(f"UPDATE books SET {sets} WHERE id=?",
                              (*cols.values(), row["id"]))
@@ -203,8 +215,8 @@ class DB:
             sql += " AND era=?"
             args.append(era)
         if keyword:
-            sql += " AND (title LIKE ? OR alt_title LIKE ? OR shelf_id LIKE ?)"
-            args += [f"%{keyword}%"] * 3
+            sql += " AND (title LIKE ? OR alt_title LIKE ? OR shelf_id LIKE ? OR subjects LIKE ?)"
+            args += [f"%{keyword}%"] * 4
         return sql, args
 
     def count_books(self, status: str = "", source_id: str = "",

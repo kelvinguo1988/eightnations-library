@@ -114,8 +114,12 @@ def detail(book_id: int, request: Request):
         jobs = conn.execute(
             "SELECT * FROM jobs WHERE book_id=? ORDER BY id DESC LIMIT 5",
             (book_id,)).fetchall()
+    try:
+        subjects = json.loads(row["subjects"] or "[]")
+    except Exception:
+        subjects = []
     return templates.TemplateResponse(request, "detail.html", common_ctx(
-        request, d, b=row, urls=u, meta=meta,
+        request, d, b=row, urls=u, meta=meta, subjects=subjects,
         jobs=[dict(j) for j in jobs]))
 
 

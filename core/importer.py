@@ -50,7 +50,13 @@ def merge_item_details(d: DB, source_id: str, items_dir: str,
                 detail = json.load(f)
         except Exception:
             continue
-        LocAdapter._merge_resources(by_uid[m.group(1)], detail.get("resources"))
+        target = by_uid[m.group(1)]
+        LocAdapter._merge_resources(target, detail.get("resources"))
+        it = detail.get("item") or {}
+        if not target.subjects:
+            subs = [x.strip() for x in (it.get("subject") or [])
+                    if isinstance(x, str) and x.strip()]
+            target.subjects = subs[:12]
         merged += 1
     return merged
 

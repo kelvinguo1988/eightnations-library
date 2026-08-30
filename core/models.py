@@ -15,6 +15,7 @@ class BookMeta:
     year_start: Optional[int] = None
     year_end: Optional[int] = None
     language: str = ""
+    subjects: List[str] = field(default_factory=list)   # 主题词/分类（LoC subject）
     item_url: str = ""         # 原馆藏页面
     cover_url: str = ""        # 缩略图（tile 服务，公开）
     collection: str = ""       # 馆内子专藏 slug：yongle-da-dian / chinese-rare-books

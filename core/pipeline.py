@@ -28,6 +28,7 @@ def row_to_meta(row) -> BookMeta:
         cover_url=row["cover_url"], collection=row["collection"],
         volume_count=row["volume_count"], page_count=row["page_count"],
         rights=row["rights"], shelf_id=row["shelf_id"],
+        subjects=json.loads(row["subjects"] or "[]"),
         pdf_urls=json.loads(row["pdf_urls"] or "[]"),
         page_files=json.loads(row["files_json"] or "[]"),
         raw=json.loads(row["raw_json"] or "{}"))

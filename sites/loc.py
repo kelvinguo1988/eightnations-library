@@ -113,12 +113,19 @@ class LocAdapter:
             if isinstance(rights, list):
                 rights = " ".join(str(x) for x in rights)
             rights = _TAG_RE.sub("", str(rights or "")).strip()[:300]
+            seen: set = set()
+            subjects: List[str] = []
+            for s in result.get("subject") or []:
+                if isinstance(s, str) and s.strip() and s.lower() not in seen:
+                    seen.add(s.lower())
+                    subjects.append(s.strip())
             meta = BookMeta(
                 source_uid=lccn,
                 title=str(result.get("title") or "").strip(),
                 alt_title=_pick_cjk(result.get("other_title")),
                 era=era, year_start=y0, year_end=y1,
                 language=_first_str(result.get("language")),
+                subjects=subjects[:12],
                 item_url=re.sub(r"^http://", "https://", item_id).rstrip("/")
                 or f"https://www.loc.gov/item/{lccn}/",
                 cover_url=_first_str(result.get("image_url")),

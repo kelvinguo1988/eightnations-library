@@ -11,7 +11,8 @@
     <dl class="kv">
       <dt>题名（原）</dt><dd>{{ b['alt_title'] or '—' }}</dd>
       <dt>题名（罗马字）</dt><dd>{{ b['title'] or '—' }}</dd>
-      <dt>年代</dt><dd>{{ (b['era'] or '—') }} {{ b['year_start'] or '' }}{% if b['year_end'] and b['year_end'] != b['year_start'] %}–{{ b['year_end'] }}{% endif %}</dd>
+      <dt>朝代</dt><dd>{{ (b['era'] or '—') }} {{ b['year_start'] or '' }}{% if b['year_end'] and b['year_end'] != b['year_start'] %}–{{ b['year_end'] }}{% endif %}</dd>
+      <dt>分类</dt><dd>{{ b['collection'] or '—' }}{% if subjects %} <span class="mut">｜主题:</span> {{ subjects|join(' · ') }}{% endif %}</dd>
       <dt>来源馆</dt><dd>🇺🇸 美国国会图书馆 · 专藏 {{ b['collection'] or '—' }}</dd>
       <dt>架藏号</dt><dd>{{ b['shelf_id'] or '—' }}</dd>
       <dt>馆藏 ID</dt><dd>{{ b['source_uid'] }}（{{ b['volume_count'] or 1 }} 卷 / 约 {{ b['page_count'] or '?' }} 页）</dd>
