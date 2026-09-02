@@ -55,7 +55,8 @@ def fetch_one(d, row, quality: str, quota: HourQuota) -> bool:
     except Exception as e:
         result = DownloadResult(ok=False, errors=[f"适配器异常: {e}"])
     if result.ok:
-        d.finish_job(job, "done", result.pages, meta.page_count,
+        d.finish_job(job, "done", result.pages,
+                     max(meta.page_count, result.pages),
                      result.bytes_done, result.outputs)
         d.update_download_info(row["id"], os.path.join(dest, "cover.jpg"),
                                result.pages)
@@ -66,7 +67,8 @@ def fetch_one(d, row, quality: str, quota: HourQuota) -> bool:
     msg = "; ".join(result.errors) or "unknown"
     attempts = row["attempt"] + 1
     new_status = "dead" if attempts >= MAX_ATTEMPTS else "failed"
-    d.finish_job(job, "failed", result.pages, meta.page_count,
+    d.finish_job(job, "failed", result.pages,
+                 max(meta.page_count, result.pages),
                  result.bytes_done, result.outputs, msg)
     d.set_status(row["id"], new_status, error=msg[:500])
     d.log(f"失败({attempts}/{MAX_ATTEMPTS}): {msg}", level="warn",

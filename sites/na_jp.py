@@ -143,6 +143,30 @@ class NaJpAdapter:
         return []
 
     # ---------------- 下载层 ----------------
+    def _volume_ids(self, http: HttpClient, vid: str) -> List[str]:
+        """多卷展开：从条目页 viewer 翻页链收集兄弟分卷 vid。
+
+        站点对多卷书只在 fonds 列表放父记录，父 manifest 仅含封面 1 canvas；
+        各分卷（近思録１〜Ｎ…）是兄弟条目，只能由详情页
+        viewer-header__nav-btn--next 的 data-href 翻页链发现（末卷按钮
+        is-disabled）。返回 [卷1, 卷2, ...]（不含父记录本身）；单卷书 []。
+        """
+        out: List[str] = []
+        cur = vid
+        for _ in range(60):                     # 安全上限
+            html = http.get(f"{BASE}/img/{cur}")
+            if not html:
+                break
+            m = re.search(r'<button[^>]*nav-btn--next[^>]*>', html)
+            if not m or "is-disabled" in m.group(0):
+                break
+            nxt = re.search(r'data-href="/img/(\d+)"', m.group(0))
+            if not nxt or nxt.group(1) in out or nxt.group(1) == vid:
+                break
+            cur = nxt.group(1)
+            out.append(cur)
+        return out
+
     def download_item(self, meta: BookMeta, dest_dir: str, http: HttpClient,
                       quality: str = "auto",
                       progress: Optional[Progress] = None) -> DownloadResult:
@@ -155,13 +179,29 @@ class NaJpAdapter:
             else _manifest(http, meta.source_uid) or {}
         label, cids = _label_cids(manifest) if manifest \
             else (meta.title, [])
-        if not cids:
+
+        # 多卷书：父记录 manifest 通常只有封面 1 页，分卷从翻页链展开，
+        # 父记录封面页保留在最前，全部分卷合并为一个 PDF
+        manifests = [manifest] if manifest else []
+        vols: List[tuple] = []
+        if cids:
+            vols.append((meta.source_uid, cids))
+        if 0 < len(cids) <= 1:
+            for svid in self._volume_ids(http, meta.source_uid):
+                mf = _manifest(http, svid)
+                if not mf:
+                    continue
+                manifests.append(mf)
+                _, mc = _label_cids(mf)
+                if mc:
+                    vols.append((svid, mc))
+        if not vols:
             errors.append("manifest 无 cid（站点可能限流）")
         else:
-            pages = self._download_official(meta.source_uid, cids, out_pdf,
-                                            http, errors, progress)
+            pages = self._download_official(vols, out_pdf, http, errors,
+                                            progress)
             if pages == 0:
-                pages = self._download_iiif(manifest, dest_dir, out_pdf,
+                pages = self._download_iiif(manifests, dest_dir, out_pdf,
                                             http, errors, progress)
 
         outputs = [out_pdf] if pages > 0 else []
@@ -172,36 +212,43 @@ class NaJpAdapter:
         self._write_meta(dest_dir, meta, result, started)
         return result
 
-    def _download_official(self, vid: str, cids: List[str], out_pdf: str,
+    def _download_official(self, vols: List[tuple], out_pdf: str,
                            http: HttpClient, errors: List[str],
                            progress: Optional[Progress]) -> int:
-        """官方 contentDownload 分块下载 + pypdf 合并（返回页数, 0=失败）。"""
+        """官方 contentDownload 分块下载 + pypdf 合并（多卷顺序拼接）。
+
+        vols = [(vid, cids), ...]；返回总页数, 0=失败。
+        """
         from pypdf import PdfReader, PdfWriter
-        chunks = [cids[i:i + CHUNK] for i in range(0, len(cids), CHUNK)]
-        parts: List[str] = []
+        total_cids = sum(len(c) for _, c in vols)
         tmpdir = tempfile.mkdtemp(prefix="najp_")
+        parts: List[str] = []
         try:
-            for ci, ch in enumerate(chunks, 1):
-                ok = False
-                for att in range(1, MAX_ATTEMPTS + 1):
-                    data = self._post_chunk(http, vid, ch)
-                    if data and data[:4] == b"%PDF":
-                        tp = os.path.join(tmpdir, f"chunk_{ci}.pdf")
-                        with open(tp, "wb") as f:
-                            f.write(data)
-                        try:
-                            if len(PdfReader(tp).pages) == len(ch):
-                                parts.append(tp)
-                                ok = True
-                                break
-                        except Exception:
-                            pass
-                    time.sleep(min(8 * att, 60))
-                if not ok:
-                    errors.append(f"块{ci}/{len(chunks)} 下载失败")
-                    return 0
-                if progress:
-                    progress.tick(len(ch), len(cids))
+            pi = 0
+            for vi, (vid, cids) in enumerate(vols, 1):
+                chunks = [cids[i:i + CHUNK] for i in range(0, len(cids), CHUNK)]
+                for ci, ch in enumerate(chunks, 1):
+                    ok = False
+                    for att in range(1, MAX_ATTEMPTS + 1):
+                        data = self._post_chunk(http, vid, ch)
+                        if data and data[:4] == b"%PDF":
+                            pi += 1
+                            tp = os.path.join(tmpdir, f"chunk_{pi}.pdf")
+                            with open(tp, "wb") as f:
+                                f.write(data)
+                            try:
+                                if len(PdfReader(tp).pages) == len(ch):
+                                    parts.append(tp)
+                                    ok = True
+                                    break
+                            except Exception:
+                                pass
+                        time.sleep(min(8 * att, 60))
+                    if not ok:
+                        errors.append(f"卷{vi}({vid}) 块{ci}/{len(chunks)} 下载失败")
+                        return 0
+                    if progress:
+                        progress.tick(len(ch), total_cids)
             if not parts:
                 return 0
             w = PdfWriter()
@@ -213,8 +260,8 @@ class NaJpAdapter:
                 total += len(rd.pages)
             with open(out_pdf, "wb") as f:
                 w.write(f)
-            if total != len(cids):
-                errors.append(f"warn: 合并页数 {total} != cid数 {len(cids)}")
+            if total != total_cids:
+                errors.append(f"warn: 合并页数 {total} != cid数 {total_cids}")
             return total
         finally:
             for p in parts:
@@ -243,18 +290,19 @@ class NaJpAdapter:
             time.sleep(backoff * att)
         return None
 
-    def _download_iiif(self, manifest: dict, dest_dir: str, out_pdf: str,
+    def _download_iiif(self, manifests: List[dict], dest_dir: str, out_pdf: str,
                        http: HttpClient, errors: List[str],
                        progress: Optional[Progress]) -> int:
-        """兜底: IIIF canvases -> 原生 JPEG -> 组 PDF（页级断点）。"""
+        """兜底: 多卷 manifests 的 canvases -> 原生 JPEG -> 组 PDF（页级断点）。"""
         urls = []
-        for seq in manifest.get("sequences", []):
-            for canvas in seq.get("canvases", []):
-                try:
-                    svc = canvas["images"][0]["resource"]["service"]["@id"]
-                    urls.append(svc + "/full/max/0/native.jpg")
-                except (KeyError, IndexError):
-                    pass
+        for manifest in manifests:
+            for seq in manifest.get("sequences", []):
+                for canvas in seq.get("canvases", []):
+                    try:
+                        svc = canvas["images"][0]["resource"]["service"]["@id"]
+                        urls.append(svc + "/full/max/0/native.jpg")
+                    except (KeyError, IndexError):
+                        pass
         if not urls:
             return 0
         pages_dir = os.path.join(dest_dir, "_pages")
