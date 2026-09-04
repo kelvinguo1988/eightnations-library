@@ -43,12 +43,17 @@ def get_db() -> DB:
 
 def book_urls(row) -> dict:
     rel = f"{row['source_id']}/{row['collection'] or 'misc'}/{row['source_uid']}"
-    pdf = f"/data/{rel}/book.pdf"
+    directory = os.path.join(BOOKS_DIR, rel)
+    pdfs: list = []
+    if os.path.isdir(directory):
+        names = sorted(n for n in os.listdir(directory)
+                       if n == "book.pdf" or n == "cover.pdf" or
+                       (n.startswith("book_") and n.endswith(".pdf")))
+        pdfs = [f"/data/{rel}/{n}" for n in names]
     cover = f"/data/{rel}/cover.jpg"
     cover_exists = os.path.exists(os.path.join(BOOKS_DIR, rel, "cover.jpg"))
-    pdf_exists = os.path.exists(os.path.join(BOOKS_DIR, rel, "book.pdf"))
-    return {"rel": rel, "pdf": pdf if pdf_exists else "", "cover": cover,
-            "cover_exists": cover_exists}
+    return {"rel": rel, "pdfs": pdfs, "pdf": pdfs[0] if pdfs else "",
+            "cover": cover, "cover_exists": cover_exists}
 
 
 def common_ctx(request: Request, d: DB, **kw) -> dict:

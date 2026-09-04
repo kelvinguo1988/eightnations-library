@@ -21,8 +21,9 @@
       <dt>本地路径</dt><dd class="mut">data/books/{{ urls.rel }}/</dd>
     </dl>
     <div class="btn-row">
-      {% if urls.pdf %}<a class="btn primary" href="{{ urls.pdf }}" target="_blank">📖 在线阅读</a>
-      <a class="btn" href="{{ urls.pdf }}" download>⬇ 下载 PDF</a>
+      {% if urls.pdf %}
+      <a class="btn primary" href="{{ urls.pdf }}" target="_blank">📖 在线阅读</a>
+      {% for p in urls.pdfs %}<a class="btn" href="{{ p }}" download>⬇ {{ p.rsplit('/', 1)[-1] }}</a>{% endfor %}
       {% else %}<span class="mut">PDF 尚未下载（状态 {{ b['status'] }}）</span>{% endif %}
     </div>
     {% if meta %}
@@ -31,7 +32,7 @@
   </div>
 </div>
 
-{% if urls.pdf %}
+{% if urls.pdf and urls.pdfs|length == 1 %}
 <embed class="pdf" src="{{ urls.pdf }}#toolbar=1&view=FitH" type="application/pdf">
 {% endif %}
 
