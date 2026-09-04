@@ -2,7 +2,7 @@
 {% block title %}新书审核 · 八国联军图书馆{% endblock %}
 {% block content %}
 <h2>新书审核</h2>
-<div class="sub">发现未处理 <b style="color:var(--warn)">{{ total }}</b> 册 · 勾选后批量「入库下载」或「忽略」；入库后由调度器按每馆配额自动获取</div>
+<div class="sub">发现未处理 <b style="color:var(--warn)">{{ total }}</b> 册 · 勾选后「立即下载」优先获取，或「入库下载」排队、「忽略」跳过</div>
 <form class="filters" method="get" action="/review">
   <input type="text" name="q" value="{{ q }}" placeholder="书名 / 架藏号 关键字">
   <select name="source">
@@ -21,10 +21,11 @@
 </form>
 
 <div class="btn-row">
-  <button class="btn primary" onclick="decide('approve')">✓ 入库下载（勾选）</button>
+  <button class="btn primary" onclick="decide('download')">⚡ 立即下载（勾选优先）</button>
+  <button class="btn" onclick="decide('approve')">✓ 入库排队（勾选）</button>
   <button class="btn danger" onclick="decide('ignore')">✗ 忽略（勾选）</button>
   <label class="mut" style="display:flex;align-items:center;gap:6px"><input type="checkbox" id="selall" onchange="selAll(this)"> 全选本页</label>
-  <span class="mut">当前筛选 {{ rows|length }} 条 / 未处理共 {{ total }} 条</span>
+  <span class="mut">本页 {{ rows|length }} 条 / 未处理共 {{ total }} 条</span>
 </div>
 
 {% if rows %}
@@ -41,6 +42,13 @@
 </tr>
 {% endfor %}
 </table>
+{% if pages > 1 %}
+<div class="pager">
+  {% if page > 1 %}<a href="/review?q={{ q }}&source={{ f_source }}&collection={{ f_collection }}&era={{ f_era }}&page={{ page-1 }}">‹ 上一页</a>{% endif %}
+  <span class="cur">{{ page }} / {{ pages }}</span>
+  {% if page < pages %}<a href="/review?q={{ q }}&source={{ f_source }}&collection={{ f_collection }}&era={{ f_era }}&page={{ page+1 }}">下一页 ›</a>{% endif %}
+</div>
+{% endif %}
 {% else %}<div class="empty">🎉 没有待审核的新书</div>{% endif %}
 
 <script>
@@ -48,7 +56,8 @@ function selAll(el){document.querySelectorAll('.ck').forEach(c=>c.checked=el.che
 async function decide(action){
   const ids=[...document.querySelectorAll('.ck:checked')].map(c=>+c.value);
   if(!ids.length){alert('请先勾选书目');return}
-  if(!confirm((action==='approve'?'入库下载 ':'忽略 ')+ids.length+' 册？'))return;
+  const label=action==='download'?'立即下载 ':action==='approve'?'入库排队 ':'忽略 ';
+  if(!confirm(label+ids.length+' 册？'))return;
   const r=await fetch('/api/review',{method:'POST',headers:{'Content-Type':'application/json'},
     body:JSON.stringify({action,ids})});
   if(r.ok){location.reload()}else{alert('操作失败: '+(await r.text()))}

@@ -7,6 +7,7 @@
 import json
 import os
 import sys
+import threading
 from typing import List, Optional
 
 from fastapi import FastAPI, File, Form, Request, Response, UploadFile
@@ -131,15 +132,20 @@ def detail(book_id: int, request: Request):
 # ---------------------------------------------------------------- 新书审核
 @app.get("/review", response_class=HTMLResponse)
 def review(request: Request, q: str = "", source: str = "",
-           collection: str = "", era: str = "", limit: int = 60):
+           collection: str = "", era: str = "", page: int = 1):
     d = get_db()
+    per = 40
     rows = d.list_books(status="discovered", source_id=source,
-                        collection=collection, keyword=q, era=era, limit=limit)
-    total = d.count_books(status="discovered", source_id=source)
+                        collection=collection, keyword=q, era=era, limit=per,
+                        offset=(max(page, 1) - 1) * per)
+    total = d.count_books(status="discovered", source_id=source,
+                          collection=collection, keyword=q, era=era)
     facets = d.facets(source)
+    pages = max(1, (total + per - 1) // per)
     return templates.TemplateResponse(request, "review.html", common_ctx(
         request, d, rows=rows, total=total, q=q, f_source=source,
-        f_collection=collection, f_era=era, facets=facets, limit=limit))
+        f_collection=collection, f_era=era, facets=facets,
+        page=page, pages=pages))
 
 
 @app.post("/api/review")
@@ -148,12 +154,38 @@ async def api_review(request: Request):
     body = await request.json()
     action = body.get("action")
     ids = [int(i) for i in (body.get("ids") or [])]
-    if action not in ("approve", "ignore") or not ids:
+    if action not in ("approve", "ignore", "download") or not ids:
         return JSONResponse({"error": "action/ids 不合法"}, status_code=400)
-    status = "queued" if action == "approve" else "ignored"
+    if action == "ignore":
+        for i in ids:
+            d.set_status(i, "ignored")
+        d.log(f"人工审核: ignored x{len(ids)}")
+        return {"updated": len(ids), "action": action}
+
+    # approve / download：先入库为 queued
     for i in ids:
-        d.set_status(i, status)
-    d.log(f"人工审核: {status} x{len(ids)}")
+        d.set_status(i, "queued")
+    if action == "download":
+        # 按用户勾选顺序后台即时下载（先下载想要的）；已开跑的书不重复处理
+        def _worker():
+            for i in ids:
+                try:
+                    row = d.get_book(i)
+                    if not row or row["status"] != "queued":
+                        continue
+                    q_row = d.connect().execute(
+                        "SELECT hourly_quota, quality FROM sources WHERE id=?",
+                        (row["source_id"],)).fetchone()
+                    quota_n = int(q_row["hourly_quota"]) if q_row else 10
+                    quality = q_row["quality"] if q_row else "auto"
+                    fetch_one(d, row, quality,
+                              HourQuota(default_quota=max(quota_n, 1)))
+                except Exception as e:
+                    d.log(f"立即下载 #{i} 异常: {e}", level="warn")
+        threading.Thread(target=_worker, daemon=True).start()
+        d.log(f"人工审核: 立即下载 x{len(ids)}")
+    else:
+        d.log(f"人工审核: queued x{len(ids)}")
     return {"updated": len(ids), "action": action}
 
 
