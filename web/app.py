@@ -58,12 +58,11 @@ def book_urls(row) -> dict:
 
 
 def common_ctx(request: Request, d: DB, **kw) -> dict:
-    ctx = {
-        "request": request,
-        "counts": d.count_by_status(),
-        "sources": d.connect().execute("SELECT * FROM sources ORDER BY id").fetchall(),
-    }
-    ctx["sources"] = list(ctx["sources"])
+    with d.connect() as conn:
+        sources = [dict(r) for r in conn.execute(
+            "SELECT * FROM sources ORDER BY id")]
+    ctx = {"request": request, "counts": d.count_by_status(),
+           "sources": sources}
     ctx.update(kw)
     return ctx
 
@@ -240,7 +239,7 @@ def jobs(request: Request):
     for r in src_stats:
         by_source.setdefault(r["source_id"], {})[r["status"]] = r["n"]
     return templates.TemplateResponse(request, "jobs.html", common_ctx(
-        request, d, recent=[dict(j) | {"urls": None} for j in recent],
+        request, d, recent=[dict(j) for j in recent],
         by_source=by_source, events=[dict(e) for e in events],
         total_bytes=agg["b"], total_done=agg["n"]))
 
@@ -261,7 +260,10 @@ async def settings_save(request: Request):
     for r in rows:
         sid = r["id"]
         enabled = 1 if form.get(f"enabled_{sid}") else 0
-        quota = max(1, int(form.get(f"quota_{sid}") or 10))
+        try:
+            quota = max(1, int(form.get(f"quota_{sid}") or 10))
+        except (TypeError, ValueError):
+            quota = 10
         quality = form.get(f"quality_{sid}") or "auto"
         catalog_url = (form.get(f"catalog_url_{sid}") or "").strip()
         with d.connect() as conn:

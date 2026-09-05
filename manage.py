@@ -24,7 +24,6 @@ from core.db import DB                               # noqa: E402
 from core.http import HttpClient                     # noqa: E402
 from core.importer import import_snapshot_files      # noqa: E402
 from core.pipeline import fetch_one, run_source_heartbeat, row_to_meta  # noqa: E402
-from sites import get_adapter                        # noqa: E402
 from sites.loc import LocAdapter                     # noqa: E402
 
 DATA_DIR = os.environ.get("EIGHTNATIONS_DATA",

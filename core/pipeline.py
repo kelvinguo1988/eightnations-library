@@ -44,14 +44,17 @@ def fetch_one(d, row, quality: str, quota: HourQuota) -> bool:
     if not quota.allow(src):
         d.log("达到每小时配额，停止本轮", source=src)
         return False
+    if not d.claim_book(row["id"]):
+        # 已被其他执行方（调度器/手动）认领：跳过且不消耗配额
+        return True
     adapter = get_adapter(src, HttpClient())
+    http = adapter.http if hasattr(adapter, "http") else HttpClient()
     meta = row_to_meta(row)
     dest = _dest_dir(src, row["collection"], row["source_uid"])
     job = d.start_job(row["id"], quality)
-    d.set_status(row["id"], "running", bump_attempt=True)
     d.log(f"开始下载: {meta.alt_title or meta.title}", source=src, book_id=row["id"])
     try:
-        result = adapter.download_item(meta, dest, HttpClient(), quality)
+        result = adapter.download_item(meta, dest, http, quality)
     except Exception as e:
         result = DownloadResult(ok=False, errors=[f"适配器异常: {e}"])
     if result.ok:

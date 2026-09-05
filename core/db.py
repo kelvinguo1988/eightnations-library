@@ -269,6 +269,19 @@ class DB:
         with self._lock, self.connect() as conn:
             conn.execute(f"UPDATE books SET {','.join(sets)} WHERE id=?", args)
 
+    def claim_book(self, book_id: int) -> bool:
+        """原子认领：仅当仍处于 queued/failed/dead 时置为 running。
+
+        防止调度器与 Web 手动触发并发抓同一本书（双写同一 .part 会损坏文件）。
+        返回 False 表示已被其他执行方认领。
+        """
+        with self._lock, self.connect() as conn:
+            cur = conn.execute(
+                "UPDATE books SET status='running', attempt=attempt+1 "
+                "WHERE id=? AND status IN ('queued','failed','dead')",
+                (book_id,))
+            return cur.rowcount > 0
+
     def update_download_info(self, book_id: int, cover_path: str,
                              page_count: int) -> None:
         with self._lock, self.connect() as conn:

@@ -228,6 +228,11 @@ class LocAdapter:
                     pages_done += n
                     bytes_done += os.path.getsize(out_pdf)
                 except Exception as e:
+                    # 损坏文件必须删掉，否则 skip-if-exists 会让重试永远失败
+                    try:
+                        os.remove(out_pdf)
+                    except OSError:
+                        pass
                     errors.append(f"卷{i + 1}: PDF 校验失败 {e}")
             else:
                 errors.append(f"卷{i + 1}: 官方 PDF 下载失败")

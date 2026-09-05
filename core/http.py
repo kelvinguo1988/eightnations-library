@@ -54,6 +54,11 @@ class DomainThrottle:
             time.sleep(min(sleep_for, 5.0) + random.uniform(0, self.jitter))
 
 
+# 进程级共享节流：跨适配器/跨册保持对同一域名的最小间隔
+# （多进程间不共享；进程本身只有 scheduler 一个抓取执行方，够用）
+SHARED_THROTTLE = DomainThrottle()
+
+
 def _domain_of(url: str) -> str:
     try:
         return requests.utils.urlparse(url).netloc.lower()
@@ -64,7 +69,7 @@ def _domain_of(url: str) -> str:
 class HttpClient:
     def __init__(self, throttle: Optional[DomainThrottle] = None,
                  timeout: int = 60, attempts: int = 4):
-        self.throttle = throttle or DomainThrottle()
+        self.throttle = throttle or SHARED_THROTTLE
         self.timeout = timeout
         self.attempts = attempts
         self.session = requests.Session()
@@ -95,7 +100,10 @@ class HttpClient:
 
         完整性: 首个响应带 Content-Length / Content-Range 总长时，完成后必须
         与之相等；200 全量响应直接覆盖残片，杜绝 200/206 混拼导致的损坏。
+        dest 已存在且体积达标时直接跳过（失败重试不重复下载已完成卷/页）。
         """
+        if os.path.exists(dest) and os.path.getsize(dest) >= max(min_bytes, 1):
+            return True
         part = dest + ".part"
         os.makedirs(os.path.dirname(dest) or ".", exist_ok=True)
         full_size = expected_bytes

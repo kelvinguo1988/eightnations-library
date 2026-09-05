@@ -108,6 +108,7 @@ def main() -> None:
     d.init()
     blocked_until: Dict[str, float] = {}
     quotas: Dict[str, "object"] = {}     # 常驻实例 → "每小时 N 册"滑动窗口跨心跳生效
+    last_prune = 0.0
     print(f"[scheduler] 启动: 心跳 {HEARTBEAT_SEC}s, 目录预算/心跳 {CATALOG_BUDGET} "
           f"条, db={DB_PATH}", flush=True)
     while True:
@@ -140,6 +141,12 @@ def main() -> None:
                 print(f"[scheduler] {s['id']}: 尝试 {tried} 成功 {ok}"
                       f"{'(配额尽)' if hit else ''}，剩 {s['pending'] - tried} 在队列",
                       flush=True)
+            # 3) 事件日志裁剪（每 6 小时，保留最近 2000 条）
+            if time.time() - last_prune > 6 * 3600:
+                with d.connect() as conn:
+                    conn.execute("DELETE FROM events WHERE id < "
+                                 "(SELECT COALESCE(MAX(id),0) - 2000 FROM events)")
+                last_prune = time.time()
         except KeyboardInterrupt:
             print("[scheduler] 收到中断，退出", flush=True)
             return

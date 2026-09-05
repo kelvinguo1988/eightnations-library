@@ -122,8 +122,7 @@ class NaJpAdapter:
         """一次性全量收割（CLI 用；调度器请用 harvest_step 防封禁）。"""
         out: List[BookMeta] = []
         stats = self.harvest_step(
-            fonds_url, known_uids=None,
-            budget=0, max_pages=max_pages if max_pages > 1 else 50,
+            fonds_url, known_uids=None, budget=0, max_pages=max_pages,
             on_meta=(lambda m: (out.append(m),
                                 progress.tick(1, 0) if progress else None)))
         return out

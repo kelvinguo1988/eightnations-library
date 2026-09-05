@@ -31,7 +31,6 @@ _ERA_BY_YEAR = [
     (1912, 1949, "民国"), (1644, 1911, "清"), (1368, 1644, "明"),
     (1271, 1368, "元"), (960, 1279, "宋"), (618, 907, "唐"),
 ]
-_CJK_RE = re.compile(r"[\u3400-\u9fff\uf900-\ufaff]")
 _NSR = "{http://www.loc.gov/zing/srw/}"
 
 
@@ -43,13 +42,6 @@ def _era_from_year(y: Optional[int]) -> str:
     if not y:
         return ""
     return next((zh for lo, hi, zh in _ERA_BY_YEAR if lo <= y <= hi), "")
-
-
-def _sru_url(query: str, start: int = 1, maximum: int = 50) -> str:
-    from urllib.parse import quote
-    return (f"{SRU_BASE}?version=1.2&operation=searchRetrieve"
-            f"&query={quote(query)}&startRecord={start}"
-            f"&maximumRecords={maximum}")
 
 
 def _parse_sru(xml_text: str) -> Dict[str, Any]:
