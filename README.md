@@ -13,7 +13,7 @@
 | M1 骨架 + LoC 首册跑通 | ✅ 2026-08-29 |
 | M2 LoC 全量流水线 | ✅ 永樂大典 41 册全部归档（调度守护 + 滑动配额 + 断点续传完整性校验） |
 | M3 Web v1 | ✅ 五页全部上线并目检（书库/详情含内嵌阅读器/审核/任务面板/设置） |
-| M4 日本迁移 | ✅ na_jp 适配器（实时收割 100 册 + 官方 contentDownload 下载实测 29 页）；ndl_jp 待下轮（需验证接口） |
+| M4 日本迁移 | ✅ na_jp 适配器（实时收割 100 册 + 官方 contentDownload 下载实测 29 页）；朝代/著者/架藏号已从 manifest 提取（宋45/明24/元9/清8/唐7）；ndl_jp 待下轮（需验证接口） |
 | M5 Docker/QNAP | ✅ Dockerfile + compose + entrypoint 就绪（本机 Docker 未启动，待 NAS 构建验证） |
 | M6 扩馆 | 🔄 BnF 法国国家图书馆已接入并实测（目录 SRU 开放 1,011 条数字化中文文献，IIIF 下载验证）；其余候选未通：剑桥 CUDL（搜索被 CloudFront 拦）、哈佛（API 当前网络不可达）、巴伐利亚 MDZ（接口路径不可证）、BL-IDP（Cloudflare）、意大利（地理封锁）、俄国（未数字化） |
 | 待办 | 中国善本 1977 册缺条目详情：跑 `tools/loc_fill_details.py`（人工过盾一次，约 40 分钟）后 `manage.py import-details` + 重试 |

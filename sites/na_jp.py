@@ -50,6 +50,48 @@ class NaJpAdapter:
     def __init__(self, http: HttpClient):
         self.http = http
 
+    # IIIF manifest metadata 里的朝代标注：编者/校订者括号（宋）（明）…，
+    # 或"清康熙中勅編"这类年号前缀；按 原撰者朝代优先
+    _DYNASTIES = ("唐", "宋", "元", "明", "清", "民国")
+    _DYN_PAREN = re.compile(r"[（(](唐|宋|元|明|清|民国)[）)]")
+
+    @staticmethod
+    def _manifest_metadata(mf: Dict[str, Any]) -> Dict[str, str]:
+        """IIIF metadata 数组 → {label: 文本值}（兼容 value 为列表的结构）。"""
+        out: Dict[str, str] = {}
+        for item in mf.get("metadata") or []:
+            lbl = str(item.get("label", ""))
+            val = item.get("value")
+            if isinstance(val, list):
+                parts = []
+                for v in val:
+                    parts.append(v.get("@value", "") if isinstance(v, dict)
+                                 else str(v))
+                val = " / ".join(p for p in parts if p)
+            out[lbl] = str(val or "")
+        return out
+
+    @classmethod
+    def _enrich_from_metadata(cls, meta: BookMeta, mf: Dict[str, Any]) -> None:
+        """从 manifest metadata 提取 著者/朝代/架藏号（如'編者:黎靖徳（宋）'→ era=宋）。"""
+        pairs = cls._manifest_metadata(mf)
+        creator = next((v for k, v in pairs.items()
+                        if "Creator" in k or "作成" in k), "")
+        if creator and not meta.author:
+            meta.author = creator
+        if creator and not meta.era:
+            m = cls._DYN_PAREN.search(creator)
+            if m:
+                meta.era = m.group(1)
+            else:
+                for tok in cls._DYNASTIES:
+                    if tok in creator:
+                        meta.era = tok
+                        break
+        if not meta.shelf_id:
+            meta.shelf_id = next((v[:40] for k, v in pairs.items()
+                                  if "Identifier" in k or "請求" in k), "")
+
     # ---------------- 发现层（站点可直接访问，实时收割） ----------------
     def harvest_step(self, catalog_url: str, known_uids=None, budget: int = 40,
                      max_pages: int = 50, on_meta=None) -> Dict[str, Any]:
@@ -107,6 +149,7 @@ class NaJpAdapter:
                 cover_url=str(cover or ""),
                 page_files=[[]],
                 raw=mf)
+            self._enrich_from_metadata(meta, mf)
             if on_meta:
                 on_meta(meta)
             fetched += 1

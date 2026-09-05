@@ -25,6 +25,7 @@ from core.http import HttpClient                     # noqa: E402
 from core.importer import import_snapshot_files      # noqa: E402
 from core.pipeline import fetch_one, run_source_heartbeat, row_to_meta  # noqa: E402
 from sites.loc import LocAdapter                     # noqa: E402
+from sites.na_jp import NaJpAdapter                  # noqa: E402
 
 DATA_DIR = os.environ.get("EIGHTNATIONS_DATA",
                           os.path.join(os.path.dirname(os.path.abspath(__file__)),
@@ -155,6 +156,28 @@ def cmd_import_na_jp(args) -> None:
         print("下一步: python3 manage.py approve --source na_jp")
 
 
+def cmd_backfill_na_jp(args) -> None:
+    """从已存的 na_jp 原始 manifest 离线回填 著者/朝代/架藏号（零联网）。"""
+    d = db()
+    rows = d.list_books(source_id="na_jp", limit=100000)
+    updated = 0
+    for r in rows:
+        try:
+            mf = json.loads(r["raw_json"] or "{}")
+        except Exception:
+            continue
+        if not mf.get("metadata"):
+            continue
+        meta = row_to_meta(r)
+        before = (meta.era, meta.author, meta.shelf_id)
+        NaJpAdapter._enrich_from_metadata(meta, mf)
+        if (meta.era, meta.author, meta.shelf_id) != before:
+            d.upsert_book("na_jp", meta.__dict__)
+            updated += 1
+    counts = d.count_by_status("na_jp")
+    print(f"回填完成：更新 {updated}/{len(rows)} 册；状态 {counts}")
+
+
 def cmd_import_details(args) -> None:
     """把 tools/loc_fill_details.py 采到的 item_<lccn>.json 合并进已有书目。"""
     d = db()
@@ -260,6 +283,8 @@ def main() -> None:
     p.add_argument("--budget", type=int, default=0,
                    help="单次最多抓取条目数（0=不限；默认不限，被限流时重跑续传）")
     p.set_defaults(func=cmd_import_na_jp)
+
+    sub.add_parser("backfill-na-jp").set_defaults(func=cmd_backfill_na_jp)
 
     p = sub.add_parser("retry")
     p.add_argument("--id", type=int)
