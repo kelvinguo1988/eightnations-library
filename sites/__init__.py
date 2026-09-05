@@ -3,12 +3,14 @@ from typing import Dict, Type
 
 from core.http import HttpClient
 from sites.base import SourceAdapter
+from sites.bnf import BnfAdapter
 from sites.loc import LocAdapter
 from sites.na_jp import NaJpAdapter
 
 _REGISTRY: Dict[str, Type[SourceAdapter]] = {
     "loc": LocAdapter,
     "na_jp": NaJpAdapter,
+    "bnf": BnfAdapter,
 }
 
 

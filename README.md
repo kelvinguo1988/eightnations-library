@@ -15,7 +15,7 @@
 | M3 Web v1 | ✅ 五页全部上线并目检（书库/详情含内嵌阅读器/审核/任务面板/设置） |
 | M4 日本迁移 | ✅ na_jp 适配器（实时收割 100 册 + 官方 contentDownload 下载实测 29 页）；ndl_jp 待下轮（需验证接口） |
 | M5 Docker/QNAP | ✅ Dockerfile + compose + entrypoint 就绪（本机 Docker 未启动，待 NAS 构建验证） |
-| M6 扩馆（BnF/ÖNB/IDP/…） | 未开始 |
+| M6 扩馆 | 🔄 BnF 法国国家图书馆已接入并实测（目录 SRU 开放 1,011 条数字化中文文献，IIIF 下载验证）；其余候选未通：剑桥 CUDL（搜索被 CloudFront 拦）、哈佛（API 当前网络不可达）、巴伐利亚 MDZ（接口路径不可证）、BL-IDP（Cloudflare）、意大利（地理封锁）、俄国（未数字化） |
 | 待办 | 中国善本 1977 册缺条目详情：跑 `tools/loc_fill_details.py`（人工过盾一次，约 40 分钟）后 `manage.py import-details` + 重试 |
 
 ## 目录结构
@@ -24,6 +24,7 @@
 core/        公共内核：db(SQLite/WAL) · http(限速/重试/Range续传完整性) · limiter(每小时配额)
              · pdfbuild(JPEG无损组PDF, 纯标准库) · pipeline(队列→下载→状态机) · models
 sites/       每馆一个适配器：base.py(契约) · loc.py(美国国会图书馆) · na_jp.py(国立公文書館)
+             · bnf.py(法国国家图书馆: 目录SRU + Gallica IIIF)
 web/         FastAPI + Jinja2 前端：书库/详情(内嵌阅读器)/新书审核/任务面板/设置
 tools/       loc_snapshot.py(目录快照半自动) · loc_fill_details.py(补条目详情, 可续跑)
 fixtures/    真实快照样例（永樂大典 43 条 + 首条详情），用于开发/回归

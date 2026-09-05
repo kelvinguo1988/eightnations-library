@@ -24,6 +24,8 @@ _DOMAIN_MIN_INTERVAL = {
     "www.loc.gov": 3.0,
     "www.digital.archives.go.jp": 2.5,
     "dl.ndl.go.jp": 2.0,
+    "catalogue.bnf.fr": 2.0,
+    "gallica.bnf.fr": 2.0,
 }
 _DEFAULT_INTERVAL = 1.5
 

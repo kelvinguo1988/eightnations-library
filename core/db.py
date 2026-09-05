@@ -86,6 +86,10 @@ _DEFAULT_SOURCES = [
     ("na_jp", "日本国立公文書館", "日本", "🇯🇵", "na_jp", 1, 10, "auto", "direct",
      "https://www.digital.archives.go.jp/fonds/3611449?page=1"),
     ("ndl_jp", "日本国立国会图书馆", "日本", "🇯🇵", "ndl_jp", 0, 10, "auto", "direct", ""),
+    ("bnf", "法国国家图书馆", "法国", "🇫🇷", "bnf", 0, 10, "auto", "direct",
+     "https://catalogue.bnf.fr/api/SRU?version=1.2&operation=searchRetrieve"
+     "&query=%28bib.digitized%20all%20%22freeAccess%22%29%20and%20%28bib.language"
+     "%20all%20%22chi%22%29"),
 ]
 
 

@@ -18,6 +18,7 @@
 | 6 | IDP 主站（英/俄/德/法/日各中心合并库）对脚本返回 403（Cloudflare）；意大利文化部域名对境外 IP 封锁（备忘录 2026-08 实测） | 后续扩展馆时，每个馆的"可达性"差异很大，适配器必须允许"半人工目录"模式 |
 | 7 | **LoC 条目自带官方整本 PDF 直链**（`resources[].pdf` → `tile.loc.gov/storage-services/public/asian/<lccn>/<lccn>.pdf`，实测 200KB/页、96 页/18.6MB 一请求直达）；IIIF 路径支持 `/full/<w>,/` 任意宽度（1600px 实测 200）：**下载一本书 = 1 个 HTTP 请求**，逐页组图只作无 PDF 条目的兜底 | LoC 采集速度与存储估算大幅下调；质量档位改为 `auto/pdf/orig/mid/thumb`，`auto`=官方PDF优先 |
 | 8 | 经 ZCode 内置浏览器点击 Cloudflare 复选框一次后，永樂大典集合快照（43 条）+ 条目详情全部抓取成功（fixture 已存 `fixtures/loc/`） | snapshot 策略验证可行：浏览器人工过盾一次 → 会话内全自动翻页/抓详情 |
+| 11 | **BnF 法国馆实测（2026-08-30，严格限速逐项验证）**：catalogue.bnf.fr SRU 开放（`bib.digitized all "freeAccess"` 索引可筛 Gallica 自由访问文献，数字化中文语种文献 1,011 条，UNMARC/marcxchange-v2）；gallica.bnf.fr/iiif 的 manifest+图像对脚本开放；写本特藏目录 archivesetmanuscrits SRU 403（敦煌写卷本体暂不可自动发现）。候选未通：CUDL 搜索被 CloudFront 拦、哈佛 API 当前网络不可达、MDZ 接口路径不可证、BL-IDP Cloudflare、意大利地理封锁 | 新增 `sites/bnf.py`（默认停用）；法国馆自动收割与下载全部走开放接口 |
 | 9 | 中国善本集合级快照对多数条目**只给页数整数**，无官方 PDF 直链（实测仅 51/2028 有）、无逐页清单；页标识形如 `service:asian:lcnclscd:<lccn>:1A000:00001a`，无法从代表图推导整本页 URL → **必须逐条抓 item 详情**（tools/loc_fill_details.py 半自动补齐，可续跑） | 1977 册下载需先补详情；补齐前明确报错停在 failed，不会误下 |
 | 10 | 大 PDF 的 Range 续传若不校验总长会混拼损坏（实测一册"Stream has ended unexpectedly"） | core/http.py 下载完整性以 Content-Length / Content-Range 总长为准，200 全量响应覆盖残片；已实测修复重下成功（88 页校验通过） |
 
