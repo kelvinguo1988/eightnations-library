@@ -59,6 +59,66 @@ class DomainThrottle:
 SHARED_THROTTLE = DomainThrottle()
 
 
+def _data_dir() -> str:
+    d = os.environ.get("EIGHTNATIONS_DATA")
+    if not d:
+        d = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                         "data")
+    return d
+
+
+class FileThrottle(DomainThrottle):
+    """跨进程节流：每域一个 flock 锁文件存上次请求时刻（墙钟）。
+
+    场景: Web「立即下载」线程与 scheduler 是两个进程，各自命中同一站点时
+    单靠进程内节流会把实际间隔减半。文件锁保证跨进程串行取号。
+    """
+
+    def __init__(self, jitter: float = 0.5, runtime_dir: Optional[str] = None):
+        super().__init__(jitter)
+        import fcntl
+        self._fcntl = fcntl
+        self.dir = runtime_dir or os.path.join(_data_dir(), "runtime", "throttle")
+        os.makedirs(self.dir, exist_ok=True)
+
+    def _lock_path(self, domain: str) -> str:
+        return os.path.join(self.dir, re.sub(r"[^A-Za-z0-9.-]", "_", domain) + ".lock")
+
+    def wait(self, url: str) -> None:
+        domain = _domain_of(url)
+        interval = next(
+            (v for k, v in _DOMAIN_MIN_INTERVAL.items() if domain.endswith(k)),
+            _DEFAULT_INTERVAL)
+        path = self._lock_path(domain)
+        while True:
+            with open(path, "a+") as fh:
+                self._fcntl.flock(fh, self._fcntl.LOCK_EX)
+                try:
+                    fh.seek(0)
+                    raw = fh.read().strip()
+                    last = float(raw) if raw else 0.0
+                    now = time.time()
+                    sleep_for = last + interval - now
+                    if sleep_for <= 0:
+                        fh.seek(0)
+                        fh.truncate()
+                        fh.write(str(now))
+                        return
+                finally:
+                    self._fcntl.flock(fh, self._fcntl.LOCK_UN)
+            time.sleep(min(sleep_for, 5.0) + random.uniform(0, self.jitter))
+
+
+def _default_throttle() -> DomainThrottle:
+    try:
+        return FileThrottle()
+    except OSError:
+        return DomainThrottle()
+
+
+SHARED_THROTTLE = _default_throttle()
+
+
 def _domain_of(url: str) -> str:
     try:
         return requests.utils.urlparse(url).netloc.lower()

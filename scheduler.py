@@ -18,7 +18,7 @@ Docker 部署后由容器 ENTRYPOINT 直接运行本文件（与 web 同容器�
 import os
 import sys
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Dict
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -149,7 +149,22 @@ def main() -> None:
                 print(f"[scheduler] {s['id']}: 尝试 {tried} 成功 {ok}"
                       f"{'(配额尽)' if hit else ''}，剩 {s['pending'] - tried} 在队列",
                       flush=True)
-            # 3) 事件日志裁剪（每 6 小时，保留最近 2000 条）
+            # 3) 超时 running 回收：Web 进程崩溃残留的下载
+            #    （阈值 60 分钟，远大于正常单册/单卷下载时长）
+            cutoff = (datetime.now(timezone.utc) -
+                      timedelta(minutes=60)).strftime("%Y-%m-%dT%H:%M:%SZ")
+            with d.connect() as conn:
+                stuck = conn.execute(
+                    "UPDATE books SET status='queued', "
+                    "last_error='running 超时回收' WHERE status='running' AND id IN "
+                    "(SELECT book_id FROM jobs WHERE state='running' "
+                    " AND started_at < ?)", (cutoff,)).rowcount
+            if stuck:
+                d.log(f"回收 {stuck} 册超时 running → queued", level="warn",
+                      source="scheduler")
+                print(f"[scheduler] 回收 {stuck} 册超时任务", flush=True)
+
+            # 4) 事件日志裁剪（每 6 小时，保留最近 2000 条）
             if time.time() - last_prune > 6 * 3600:
                 with d.connect() as conn:
                     conn.execute("DELETE FROM events WHERE id < "

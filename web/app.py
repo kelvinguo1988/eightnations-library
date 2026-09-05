@@ -212,7 +212,10 @@ async def api_review(request: Request):
 async def api_retry(request: Request):
     d = get_db()
     body = await request.json()
-    book_id = int(body.get("id") or 0)
+    try:
+        book_id = int(body.get("id") or 0)
+    except (TypeError, ValueError):
+        return JSONResponse({"error": "id 不合法"}, status_code=400)
     row = d.get_book(book_id)
     if not row or row["status"] not in ("failed", "dead"):
         return JSONResponse({"error": "仅 failed/dead 可重试"}, status_code=400)
@@ -226,7 +229,11 @@ async def api_fetch(request: Request):
     """从任务面板手动触发单本下载（与调度器共用管线/配额）。"""
     d = get_db()
     body = await request.json()
-    row = d.get_book(int(body.get("id") or 0))
+    try:
+        book_id = int(body.get("id") or 0)
+    except (TypeError, ValueError):
+        return JSONResponse({"error": "id 不合法"}, status_code=400)
+    row = d.get_book(book_id)
     if not row or row["status"] != "queued":
         return JSONResponse({"error": "书不存在或不在 queued"}, status_code=400)
     src = row["source_id"]

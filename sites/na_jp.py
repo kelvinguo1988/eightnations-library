@@ -301,6 +301,23 @@ class NaJpAdapter:
         try:
             pi = 0
             for vi, ((vid, cids, _mf), name) in enumerate(zip(vols, names), 1):
+                out = os.path.join(dest_dir, name)
+                # 跳过已完成卷（页数与 cid 数一致）——多卷书重试不整卷重抓
+                if os.path.exists(out):
+                    try:
+                        n_existing = len(PdfReader(out).pages)
+                        if n_existing == len(cids):
+                            outputs.append(out)
+                            total += n_existing
+                            if progress:
+                                progress.tick(len(cids), total_cids)
+                            continue
+                    except Exception:
+                        pass    # 损坏/不完整 → 删除后按正常流程重抓
+                    try:
+                        os.remove(out)
+                    except OSError:
+                        pass
                 chunks = [cids[i:i + CHUNK] for i in range(0, len(cids), CHUNK)]
                 for ci, ch in enumerate(chunks, 1):
                     ok = False
@@ -333,7 +350,6 @@ class NaJpAdapter:
                         for pg in rd.pages:
                             w.add_page(pg)
                         vol_total += len(rd.pages)
-                    out = os.path.join(dest_dir, name)
                     with open(out, "wb") as f:
                         w.write(f)
                     outputs.append(out)
