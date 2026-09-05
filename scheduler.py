@@ -106,6 +106,14 @@ def main() -> None:
     os.makedirs(os.path.join(DATA_DIR, "logs"), exist_ok=True)
     d = DB(DB_PATH)
     d.init()
+    # 崩溃恢复：进程内没有正在进行的下载，running 状态必定是上次中断残留
+    with d.connect() as conn:
+        stuck = conn.execute(
+            "UPDATE books SET status='queued', last_error='进程中断恢复' "
+            "WHERE status='running'").rowcount
+    if stuck:
+        d.log(f"启动恢复: {stuck} 册 running → queued", source="scheduler")
+        print(f"[scheduler] 恢复 {stuck} 册中断任务 → queued", flush=True)
     blocked_until: Dict[str, float] = {}
     quotas: Dict[str, "object"] = {}     # 常驻实例 → "每小时 N 册"滑动窗口跨心跳生效
     last_prune = 0.0

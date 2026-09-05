@@ -5,7 +5,7 @@
 import glob
 import os
 import struct
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 LONG_EDGE_PT = 1190.0  # 每页 MediaBox 长边（约 A4 长边，单位 pt）
 
@@ -32,66 +32,58 @@ def jpeg_size(data: bytes):
 
 def build_pdf(image_paths: List[str], out_path: str,
               long_edge_pt: Optional[float] = LONG_EDGE_PT) -> None:
+    """JPEG 逐页写入 PDF（流式：内存中同时只保留一页图像）。
+
+    对象布局: 1=Catalog, 2=Pages, 第 i 页(0基) = 3+3i(图像)/4+3i(内容)/5+3i(页面)。
+    """
     n = len(image_paths)
     if n == 0:
         raise ValueError("no images")
-
-    objs = {}
-    img_ids = [3 + i for i in range(n)]
-    base = 3 + n
-    content_ids = [base + 2 * i for i in range(n)]
-    page_ids = [base + 2 * i + 1 for i in range(n)]
-
-    objs[1] = b"<< /Type /Catalog /Pages 2 0 R >>"
-    kids = " ".join(f"{pid} 0 R" for pid in page_ids)
-    objs[2] = ("<< /Type /Pages /Count %d /Kids [%s] >>" % (n, kids)).encode()
-
-    dims = []
-    for i, p in enumerate(image_paths):
-        with open(p, "rb") as f:
-            data = f.read()
-        w, h = jpeg_size(data)
-        dims.append((w, h))
-        cs = b"/DeviceRGB" if _jpeg_components(data) == 3 else b"/DeviceGray"
-        head = ("<< /Type /XObject /Subtype /Image /Width %d /Height %d "
-                "/ColorSpace %s /BitsPerComponent 8 /Filter /DCTDecode "
-                "/Length %d >>\nstream\n" % (w, h, cs.decode(), len(data))
-                ).encode("latin-1")
-        objs[img_ids[i]] = head + data + b"\nendstream"
-
-    for i in range(n):
-        w, h = dims[i]
-        if long_edge_pt:
-            s = long_edge_pt / max(w, h)
-            pw, ph = w * s, h * s
-        else:
-            pw, ph = float(w), float(h)
-        content = ("q %.3f 0 0 %.3f 0 0 cm /Im%d Do Q" % (pw, ph, i)).encode()
-        objs[content_ids[i]] = content
-        objs[page_ids[i]] = (
-            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 %.3f %.3f] "
-            "/Resources << /XObject << /Im%d %d 0 R >> >> "
-            "/Contents %d 0 R >>" % (pw, ph, i, img_ids[i], content_ids[i])
-        ).encode()
-
-    out = [b"%PDF-1.4\n%\xe2\xe3\xcf\xd3\n"]
-    offsets = {}
-    for num in sorted(objs):
-        offsets[num] = sum(len(x) for x in out)
-        out.append(("%d 0 obj\n" % num).encode() + objs[num] + b"\nendobj\n")
-    xref_pos = sum(len(x) for x in out)
-    max_obj = max(objs)
-    xref = [b"xref\n", ("0 %d\n" % (max_obj + 1)).encode(),
-            b"0000000000 65535 f \n"]
-    for num in range(1, max_obj + 1):
-        if num in offsets:
-            xref.append(("%010d 00000 n \n" % offsets[num]).encode())
-        else:
-            xref.append(b"0000000000 65535 f \n")
-    trailer = ("trailer\n<< /Size %d /Root 1 0 R >>\nstartxref\n%d\n%%%%EOF\n"
-               % (max_obj + 1, xref_pos)).encode()
+    max_obj = 2 + 3 * n
     with open(out_path, "wb") as f:
-        f.write(b"".join(out + xref + [trailer]))
+        f.write(b"%PDF-1.4\n%\xe2\xe3\xcf\xd3\n")
+        offsets: Dict[int, int] = {}
+
+        def write_obj(num: int, body: bytes) -> None:
+            offsets[num] = f.tell()
+            f.write(("%d 0 obj\n" % num).encode() + body + b"\nendobj\n")
+
+        write_obj(1, b"<< /Type /Catalog /Pages 2 0 R >>")
+        kids = " ".join("%d 0 R" % (5 + 3 * i) for i in range(n))
+        write_obj(2, ("<< /Type /Pages /Count %d /Kids [%s] >>" % (n, kids)).encode())
+
+        for i, p in enumerate(image_paths):
+            with open(p, "rb") as fh:
+                data = fh.read()
+            w, h = jpeg_size(data)
+            cs = "/DeviceRGB" if _jpeg_components(data) == 3 else "/DeviceGray"
+            head = ("<< /Type /XObject /Subtype /Image /Width %d /Height %d "
+                    "/ColorSpace %s /BitsPerComponent 8 /Filter /DCTDecode "
+                    "/Length %d >>\nstream\n" % (w, h, cs, len(data))
+                    ).encode("latin-1")
+            img_num = 3 + 3 * i
+            write_obj(img_num, head + data + b"\nendstream")
+            del data
+            s = (long_edge_pt / max(w, h)) if long_edge_pt else 1.0
+            # /Contents 必须是 stream 对象（PDF 规范），裸内容串会被严格解析器拒绝
+            content = ("q %.3f 0 0 %.3f 0 0 cm /Im%d Do Q\n"
+                       % (w * s, h * s, i)).encode()
+            write_obj(img_num + 1,
+                      ("<< /Length %d >>\nstream\n" % len(content)).encode()
+                      + content + b"endstream")
+            write_obj(img_num + 2, (
+                "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 %.3f %.3f] "
+                "/Resources << /XObject << /Im%d %d 0 R >> >> "
+                "/Contents %d 0 R >>" % (w * s, h * s, i, img_num, img_num + 1)
+            ).encode())
+
+        xref_pos = f.tell()
+        f.write(("xref\n0 %d\n" % (max_obj + 1)).encode())
+        f.write(b"0000000000 65535 f \n")
+        for num in range(1, max_obj + 1):
+            f.write(("%010d 00000 n \n" % offsets[num]).encode())
+        f.write(("trailer\n<< /Size %d /Root 1 0 R >>\nstartxref\n%d\n"
+                 "%%%%EOF\n" % (max_obj + 1, xref_pos)).encode())
 
 
 def _jpeg_components(data: bytes) -> int:

@@ -38,7 +38,7 @@
   <td>{{ r['era'] }}{{ r['year_start'] or '' }}</td>
   <td class="mut">{{ r['collection'] or '—' }}</td>
   <td class="mut">{{ r['shelf_id'] }}</td>
-  <td>{% if r['pdf_urls'] != '[]' %}<span class="badge done">有</span>{% else %}<span class="badge ignored">无</span>{% endif %}</td>
+  <td>{% if r['pdf_urls']|has_pdf %}<span class="badge done">有</span>{% else %}<span class="badge ignored">无</span>{% endif %}</td>
 </tr>
 {% endfor %}
 </table>

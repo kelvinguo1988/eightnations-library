@@ -60,7 +60,11 @@ def fetch_details(out_dir: str, limit: int, headless: bool) -> None:
                 t = ""
             if t.strip().startswith("{"):
                 return t
-            if not hinted and "moment" in (page.title() or "").lower():
+            try:
+                pt = page.title()
+            except Exception:
+                pt = ""
+            if not hinted and "moment" in (pt or "").lower():
                 print("  !! 请在浏览器窗口点击人机验证复选框（只需一次）…", flush=True)
                 hinted = True
             time.sleep(2)

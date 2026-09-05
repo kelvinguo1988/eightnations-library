@@ -68,7 +68,11 @@ def fetch_headed(slug: str, out_dir: str, per_page: int, with_items: bool,
                 t = ""
             if t.strip().startswith("{"):
                 return t
-            if not hinted and "moment" in (page.title() or "").lower():
+            try:
+                pt = page.title()
+            except Exception:
+                pt = ""
+            if not hinted and "moment" in (pt or "").lower():
                 print("  !! 检测到人机验证，请在浏览器窗口中点击复选框…", flush=True)
                 hinted = True
             time.sleep(2)

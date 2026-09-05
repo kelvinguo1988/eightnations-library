@@ -201,7 +201,9 @@ class NaJpAdapter:
                 pages, outputs = self._download_iiif(vols, dest_dir, http,
                                                      errors, progress)
 
-        result = DownloadResult(ok=bool(outputs) and not errors,
+        # 官方通道失败后 IIIF 兜底成功时，errors 里是第一次尝试的告警，
+        # 不应否定最终成功 → 以实际产出为准
+        result = DownloadResult(ok=bool(outputs) and pages > 0,
                                 outputs=outputs, pages=pages,
                                 bytes_done=sum(os.path.getsize(p)
                                                for p in outputs),

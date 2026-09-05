@@ -36,10 +36,16 @@ os.makedirs(BOOKS_DIR, exist_ok=True)
 app.mount("/data", StaticFiles(directory=BOOKS_DIR), name="data")
 
 
+_DB: Optional[DB] = None
+
+
 def get_db() -> DB:
-    d = DB(DB_PATH)
-    d.init()
-    return d
+    """进程内单例：迁移/建表只跑一次（原先每个请求都执行 init）。"""
+    global _DB
+    if _DB is None:
+        _DB = DB(DB_PATH)
+        _DB.init()
+    return _DB
 
 
 def book_urls(row) -> dict:
@@ -75,6 +81,17 @@ def _bytes_h(n: int) -> str:
 
 
 templates.env.filters["bytes_h"] = _bytes_h
+
+
+def _has_pdf(v) -> bool:
+    """pdf_urls 里存在非空直链才算"有"（合并保护后可能残留 ["",""]）。"""
+    try:
+        return any(x for x in json.loads(v or "[]"))
+    except Exception:
+        return False
+
+
+templates.env.filters["has_pdf"] = _has_pdf
 
 
 # ---------------------------------------------------------------- 书库
@@ -152,7 +169,10 @@ async def api_review(request: Request):
     d = get_db()
     body = await request.json()
     action = body.get("action")
-    ids = [int(i) for i in (body.get("ids") or [])]
+    try:
+        ids = [int(i) for i in (body.get("ids") or [])]
+    except (TypeError, ValueError):
+        return JSONResponse({"error": "ids 不合法"}, status_code=400)
     if action not in ("approve", "ignore", "download") or not ids:
         return JSONResponse({"error": "action/ids 不合法"}, status_code=400)
     if action == "ignore":
