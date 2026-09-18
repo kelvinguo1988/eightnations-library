@@ -62,6 +62,7 @@ def _parse_sru(xml_text: str) -> Dict[str, Any]:
         ark = m.group(1)
         title = creator = ""
         year = None
+        subjects: List[str] = []
         for df in (e for e in rec.iter() if _local(e.tag) == "datafield"):
             tag = df.get("tag", "")
             subs = {sf.get("code"): (sf.text or "").strip()
@@ -74,8 +75,13 @@ def _parse_sru(xml_text: str) -> Dict[str, Any]:
                 m2 = re.search(r"d(1[0-9]{3})", subs.get("a", ""))
                 if m2 and year is None:
                     year = int(m2.group(1))
-        out["records"].append(
-            {"ark": ark, "title": title, "creator": creator, "year": year})
+            elif tag.startswith("60") and tag != "601":
+                # 60X 主题（606 论题 / 607 地理…）：$a 为主题词，$3 是数字编号跳过
+                a = subs.get("a", "")
+                if a and not a.isdigit() and a not in subjects:
+                    subjects.append(a)
+        out["records"].append({"ark": ark, "title": title, "creator": creator,
+                               "year": year, "subjects": subjects[:10]})
     return out
 
 
@@ -174,7 +180,7 @@ class BnfAdapter:
             era=_era_from_year(year) if year else "",
             year_start=year, year_end=year,
             language="french",
-            subjects=[],
+            subjects=rec.get("subjects") or [],
             item_url=f"https://gallica.bnf.fr/ark:/12148/{rec['ark']}",
             cover_url=f"{IIIF_BASE}/ark:/12148/{rec['ark']}/f1/full/300,/0/native.jpg"
             if pages else "",

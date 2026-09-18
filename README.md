@@ -22,7 +22,7 @@
 | 馆 | 适配器 | 发现方式 | 下载方式 | 默认 | 规模 |
 |----|--------|---------|---------|------|------|
 | 🇺🇸 美国国会图书馆 | `sites/loc.py` | 快照半自动（Cloudflare 盾） | 官方 PDF 直链优先，IIIF 逐页兜底 | 启用 | 永樂大典 41 册 + 中国善本 2,028 条 |
-| 🇯🇵 日本国立公文書館 | `sites/na_jp.py` | **自动收割**（站点无盾） | 官方 contentDownload 分块 PDF，IIIF 兜底 | 启用 | 汉籍 fonds 100+ 册（多卷书自动展开） |
+| 🇯🇵 日本国立公文書館 | `sites/na_jp.py` | **自动收割**（站点无盾） | 官方 contentDownload 分块 PDF，IIIF 兜底 | 启用 | 汉籍 fonds 100+ 册（分类: 漢籍/旧藏文库/刊本类别/朝代） |
 | 🇫🇷 法国国家图书馆 | `sites/bnf.py` | **自动收割**（目录 SRU 开放） | Gallica IIIF 逐页组 PDF | 停用 | 数字化中文语种文献 1,011 条 |
 | 🇯🇵 日本国立国会图书馆 | `sites/ndl_jp.py` | 待实现 | 待实现 | 停用 | 待接口验证 |
 
@@ -104,6 +104,11 @@ python3 manage.py approve --source na_jp
 # 朝代/著者/架藏号回填（manifest 的 Creator 字段含"編者:黎靖徳（宋）"式标注；
 # 新收割自动携带，老数据跑一次即可，零联网）
 python3 manage.py backfill-na-jp
+
+# 分类富化：拉取条目详情页补 漢籍/旧藏来源(紅葉山文庫·昌平坂学問所·林羅山等)/
+# 版本类别(和刻本·朝鮮刊本·明刊本·写本)。预算制每批 30 册（防触发 ~58 请求限流线），
+# 批间隔建议 ≥3 分钟，重复执行自动续传
+python3 manage.py enrich-na-jp --budget 30
 ```
 
 多卷书（如《近思録》）自动从翻页链展开分卷，每卷一个 PDF；重试按卷跳过已完成部分。
@@ -198,6 +203,10 @@ data/
 ```
 
 备份策略：拷 `db/library.db` + `meta.json`（图像可随时重下，不纳入备份）。
+
+**重部署安全性**：全部持久数据（书目/审核状态/任务/分类/PDF）都在挂载卷
+`/share/Container/eightnations/data`，`docker compose pull && up -d` 重建容器不触碰
+数据卷——已实测（重建前后书目/任务/PDF 完全一致，随机抽检 PDF 可读）。
 
 ## 故障排查
 

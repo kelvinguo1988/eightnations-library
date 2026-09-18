@@ -36,11 +36,11 @@ def import_collection_payload(d: DB, source_id: str, payload: Dict[str, Any],
 
 
 def merge_item_details(d: DB, source_id: str, items_dir: str,
-                       by_uid: Dict[str, BookMeta]) -> int:
-    """把 item_<uid>.json 详情合并进 metas（内存对象，随后一并 upsert）。"""
+                       by_uid: Dict[str, BookMeta]) -> set:
+    """把 item_<uid>.json 详情合并进 metas；返回已合并的 uid 集合。"""
     if not os.path.isdir(items_dir):
-        return 0
-    merged = 0
+        return set()
+    merged = set()
     for name in os.listdir(items_dir):
         m = re.match(r"item_(.+)\.json$", name)
         if not m or m.group(1) not in by_uid:
@@ -57,7 +57,7 @@ def merge_item_details(d: DB, source_id: str, items_dir: str,
             subs = [x.strip() for x in (it.get("subject") or [])
                     if isinstance(x, str) and x.strip()]
             target.subjects = subs[:12]
-        merged += 1
+        merged.add(m.group(1))
     return merged
 
 
@@ -83,9 +83,10 @@ def import_snapshot_files(d: DB, source_id: str, target: str,
         new, updated, metas = import_collection_payload(
             d, source_id, payload, collection_slug)
         by_uid = {m.source_uid: m for m in metas}
-        if merge_item_details(d, source_id, items_dir, by_uid):
-            # 详情合并后需重写一次（补 pdf_urls / files_json）
-            for meta in metas:
+        merged_uids = merge_item_details(d, source_id, items_dir, by_uid)
+        # 仅重写合并了详情的条目（补 pdf_urls / files_json / subjects）
+        for meta in metas:
+            if meta.source_uid in merged_uids:
                 d.upsert_book(source_id, meta.__dict__)
         new_total += new
         update_total += updated

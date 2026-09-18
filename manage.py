@@ -178,6 +178,36 @@ def cmd_backfill_na_jp(args) -> None:
     print(f"回填完成：更新 {updated}/{len(rows)} 册；状态 {counts}")
 
 
+def cmd_enrich_na_jp(args) -> None:
+    """拉取条目详情页补分类（漢籍/旧藏者/版本/中文）。预算制：--budget 条/次，
+    跑完未完再执行同一命令自动续传（ subjects 已有的跳过）。"""
+    from sites.na_jp import NaJpAdapter
+    d = db()
+    http = HttpClient()
+    adapter = NaJpAdapter(http)
+    rows = [r for r in d.list_books(source_id="na_jp", limit=100000)
+            if not (r["subjects"] or "").strip("[]") or
+            json.loads(r["subjects"] or "[]") == []]
+    todo = rows[:args.budget] if args.budget else rows
+    print(f"待富化 {len(rows)} 册，本轮 {len(todo)}（每域间隔 2.5s）")
+    ok = fail = 0
+    for i, r in enumerate(todo, 1):
+        meta = row_to_meta(r)
+        try:
+            if adapter.fetch_item_categories(http, r["source_uid"], meta):
+                d.upsert_book("na_jp", meta.__dict__)
+                ok += 1
+            else:
+                fail += 1
+        except Exception as e:
+            fail += 1
+            print(f"  #{r['id']} {r['source_uid']}: {e}")
+        if i % 10 == 0:
+            print(f"  {i}/{len(todo)}（成功 {ok} 失败 {fail}）", flush=True)
+    print(f"完成：成功 {ok}，失败 {fail}；"
+          f"{'仍有 ' + str(len(rows) - len(todo)) + ' 册待下一轮' if len(todo) < len(rows) else '全部处理完'}")
+
+
 def cmd_import_details(args) -> None:
     """把 tools/loc_fill_details.py 采到的 item_<lccn>.json 合并进已有书目。"""
     d = db()
@@ -285,6 +315,11 @@ def main() -> None:
     p.set_defaults(func=cmd_import_na_jp)
 
     sub.add_parser("backfill-na-jp").set_defaults(func=cmd_backfill_na_jp)
+
+    p = sub.add_parser("enrich-na-jp")
+    p.add_argument("--budget", type=int, default=30,
+                   help="单次最多拉取条目详情页数（默认 30，防触发 ~58 请求限流线）")
+    p.set_defaults(func=cmd_enrich_na_jp)
 
     p = sub.add_parser("retry")
     p.add_argument("--id", type=int)

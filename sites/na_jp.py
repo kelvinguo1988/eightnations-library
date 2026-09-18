@@ -92,6 +92,57 @@ class NaJpAdapter:
             meta.shelf_id = next((v[:40] for k, v in pairs.items()
                                   if "Identifier" in k or "請求" in k), "")
 
+    # ---------------- 条目详情页富化（分类/版本/旧藏者） ----------------
+    _EDITION_MAP = (("刊本:朝鮮", "朝鮮刊本"), ("刊本:和", "和刻本"),
+                    ("刊本:清", "清刊本"), ("刊本:明", "明刊本"),
+                    ("写本", "写本"), ("抄本", "抄本"))
+
+    @classmethod
+    def parse_item_page(cls, html: str) -> Dict[str, str]:
+        """条目详情页 dt/dd 元数据表 → {label: value}。"""
+        pairs = re.findall(r"<dt[^>]*>([^<]{2,30})</dt>\s*<dd[^>]*>(.*?)</dd>",
+                           html, re.S)
+        out: Dict[str, str] = {}
+        for lbl, val in pairs:
+            v = re.sub(r"<[^>]+>", "", val)
+            v = re.sub(r"\s+", " ", v).strip()
+            out[lbl.strip()] = v
+        return out
+
+    @classmethod
+    def enrich_categories(cls, meta: BookMeta, pairs: Dict[str, str]) -> None:
+        """详情页字段 → subjects（分类标签，去重）：
+
+        * 基础: fonds 集合名"漢籍"；
+        * 旧蔵者（如 昌平坂学問所——江户幕府官学，八国联军语境重要来源信息）；
+        * 書誌事項 版本类别（刊本:朝鮮→朝鮮刊本 / 刊本:和→和刻本 / 写本…）；
+        * 言語（中国語→中文）。
+        """
+        subs: List[str] = ["漢籍"]
+        owner = pairs.get("旧蔵者", "")
+        if owner:
+            subs.append(f"{owner}旧蔵")
+        bib = pairs.get("書誌事項", "")
+        for pat, label in cls._EDITION_MAP:
+            if pat in bib:
+                subs.append(label)
+                break
+        lang = pairs.get("言語", "")
+        if "中国語" in lang:
+            subs.append("中文")
+        for s in subs:
+            if s not in meta.subjects:
+                meta.subjects.append(s)
+
+    def fetch_item_categories(self, http: HttpClient, vid: str,
+                              meta: BookMeta) -> bool:
+        """拉取条目详情页并富化分类；返回是否成功。1 请求/册（共享节流）。"""
+        html = http.get(f"{BASE}/file/{vid}")
+        if not html:
+            return False
+        self.enrich_categories(meta, self.parse_item_page(html))
+        return True
+
     # ---------------- 发现层（站点可直接访问，实时收割） ----------------
     def harvest_step(self, catalog_url: str, known_uids=None, budget: int = 40,
                      max_pages: int = 50, on_meta=None) -> Dict[str, Any]:
