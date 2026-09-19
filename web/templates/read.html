@@ -8,20 +8,22 @@
 <link rel="stylesheet" href="/static/reader.css?v=20260919b">
 </head>
 <body>
-<div id="reader" class="{{ 'night' if prog.get('night') }}"
+<div id="reader" data-theme="{{ prog.get('theme', 'light') }}"
      data-book="{{ b['id'] }}" data-pdf="{{ pdf_url }}"
      data-total="{{ total_pages or 0 }}"
      data-page="{{ prog.get('page', 1) }}"
      data-scrollpct="{{ prog.get('scroll_pct', 0) }}"
      data-zoom="{{ prog.get('zoom', 1) }}"
-     data-layout="{{ prog.get('layout', 'scroll') }}">
+     data-layout="{{ prog.get('layout', 'scroll') }}"
+     data-anns='{{ annotations | tojson }}'>
   <header class="r-top">
     <a class="r-back" href="/">‹</a>
     <div class="r-title">{{ title_disp }}</div>
     <div class="r-pos"><span id="cur-page">{{ prog.get('page', 1) }}</span>/<span id="total-page">{{ total_pages or '?' }}</span></div>
-    <button id="bm-btn" class="r-ic" title="收藏本页书签">⭐</button>
+    <button id="bm-btn" class="r-ic" title="收藏本页书签">☆</button>
     <button id="toc-btn" class="r-ic" title="书签列表">📖</button>
-    <button id="night-btn" class="r-ic" title="夜间模式">☀</button>
+    <button id="ann-btn" class="r-ic" title="标注模式">🖍</button>
+    <button id="theme-btn" class="r-ic" title="纸张主题">☀</button>
   </header>
   <div id="viewer">
     <div id="pages"></div>
@@ -44,7 +46,10 @@
       <li data-page="{{ bm['page'] }}"><b>{{ bm['page'] }}</b> 页 {% if bm['note'] %}· {{ bm['note'] }}{% endif %} <button class="bm-del" data-page="{{ bm['page'] }}">✕</button></li>
       {% else %}<li class="mut">暂无书签 —— 顶部 ⭐ 收藏当前页</li>{% endfor %}
     </ul>
+    <a class="btn" style="margin-top:14px;display:block;text-align:center"
+       href="/export/annotations/{{ b['id'] }}.md" download>⬇ 导出标注 Markdown</a>
   </div>
+  <div id="ann-editor" hidden></div>
   <div id="toast" hidden></div>
 </div>
 <script type="module" src="/static/reader.js?v=20260919b"></script>

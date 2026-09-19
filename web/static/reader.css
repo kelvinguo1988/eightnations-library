@@ -27,10 +27,37 @@ body{background:var(--bg);color:var(--tx);font-family:-apple-system,"PingFang SC
 #reader[data-layout=single] #pages{height:100%;position:relative}
 #reader[data-layout=single] .page{position:absolute;inset:0;margin:0;display:flex;align-items:center;justify-content:center}
 #reader[data-layout=single] .page canvas{height:auto;max-width:100%;max-height:100%;width:auto;object-fit:contain}
-/* 夜间：反色滤镜（扫描件护眼） */
-#reader.night #viewer{background:#000}
-#reader.night .page canvas{filter:invert(1) hue-rotate(180deg) brightness(.92)}
-#reader.night .page{background:#111}
+/* 纸张主题 */
+#reader[data-theme=night] #viewer{background:#000}
+#reader[data-theme=night] .page canvas{filter:invert(1) hue-rotate(180deg) brightness(.92)}
+#reader[data-theme=night] .page{background:#111}
+#reader[data-theme=sepia] .page canvas{filter:sepia(.32) saturate(1.05) brightness(.99)}
+#reader[data-theme=sepia] .page{background:#f4ecd8}
+#reader[data-theme=sepia] #viewer{background:#2a251c}
+
+/* 双页布局 */
+#reader[data-layout=double] #pages{display:grid;grid-template-columns:1fr 1fr;gap:10px;width:calc(100% - 16px)}
+#reader[data-layout=double] .page{margin:0}
+
+/* 标注叠加层 */
+.page{touch-action:pan-y pinch-zoom}
+#reader.annotating .page{cursor:crosshair;touch-action:none}
+.ann{position:absolute;background:color-mix(in srgb, var(--c) 38%, transparent);border:1px solid color-mix(in srgb, var(--c) 75%, transparent);cursor:pointer;z-index:5}
+.ann-underline{background:transparent;border:none;border-bottom:4px solid var(--c)}
+.ann-note{background:color-mix(in srgb, var(--c) 18%, transparent);border-style:dashed;font-size:14px;line-height:1}
+.ghost{position:absolute;border:1.5px dashed var(--acc);background:rgba(122,162,247,.15);z-index:6;pointer-events:none}
+.ann-editor{position:absolute;z-index:30;width:230px;background:#1d2028;border:1px solid var(--line);border-radius:10px;padding:10px;box-shadow:0 6px 24px rgba(0,0,0,.5);font-size:12.5px}
+.ann-editor .swatches{display:flex;gap:6px;margin-bottom:8px}
+.ann-editor .sw{width:20px;height:20px;border-radius:50%;border:2px solid transparent;background:var(--c);cursor:pointer}
+.ann-editor .sw.on{border-color:#fff}
+.ann-editor .kinds{display:flex;gap:6px;margin-bottom:8px}
+.ann-editor .kd{flex:1;background:var(--panel2);border:1px solid var(--line);color:var(--tx2);border-radius:6px;padding:4px 0;cursor:pointer;font-size:12px}
+.ann-editor .kd.on{border-color:var(--acc);color:var(--acc)}
+.ann-editor textarea{width:100%;height:52px;background:#14161c;border:1px solid var(--line);color:var(--tx);border-radius:6px;padding:6px;font-size:12.5px;resize:vertical}
+.ann-editor .ed-row{display:flex;gap:8px;margin-top:8px}
+.ann-editor .ed-row button{flex:1;border:none;border-radius:6px;padding:6px 0;cursor:pointer;font-size:12.5px}
+.ann-editor .ed-save{background:var(--acc);color:#10131a;font-weight:600}
+.ann-editor .ed-del{background:var(--panel2);color:var(--red);border:1px solid rgba(247,118,142,.35)}
 /* 书签抽屉 */
 .drawer{position:fixed;top:0;right:0;bottom:0;width:min(320px,86vw);background:var(--panel);border-left:1px solid var(--line);z-index:40;padding:16px;transform:translateX(0);overflow:auto}
 .drawer[hidden]{display:none}

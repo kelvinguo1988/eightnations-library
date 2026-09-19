@@ -73,7 +73,13 @@ CREATE TABLE IF NOT EXISTS jobs(
 CREATE TABLE IF NOT EXISTS reading_progress(
   book_id INTEGER PRIMARY KEY REFERENCES books(id),
   page INTEGER DEFAULT 1, scroll_pct REAL DEFAULT 0, zoom REAL DEFAULT 1,
-  layout TEXT DEFAULT 'scroll', night INTEGER DEFAULT 0, updated_at TEXT
+  layout TEXT DEFAULT 'scroll', night INTEGER DEFAULT 0,
+  theme TEXT DEFAULT 'light', updated_at TEXT
+);
+CREATE TABLE IF NOT EXISTS reading_daily(
+  day TEXT PRIMARY KEY,                -- YYYY-MM-DD（UTC）
+  seconds REAL DEFAULT 0,              -- 累计阅读秒数
+  max_page INTEGER DEFAULT 0           -- 当日读到最深页
 );
 CREATE TABLE IF NOT EXISTS bookmarks(
   id INTEGER PRIMARY KEY, book_id INTEGER NOT NULL REFERENCES books(id),
@@ -142,6 +148,9 @@ class DB:
                 conn.execute("ALTER TABLE books ADD COLUMN subjects TEXT DEFAULT '[]'")
             if "favorite" not in bcols:
                 conn.execute("ALTER TABLE books ADD COLUMN favorite INTEGER DEFAULT 0")
+            pcols = {r["name"] for r in conn.execute("PRAGMA table_info(reading_progress)")}
+            if pcols and "theme" not in pcols:
+                conn.execute("ALTER TABLE reading_progress ADD COLUMN theme TEXT DEFAULT 'light'")
             for row in _DEFAULT_SOURCES:
                 conn.execute(
                     "INSERT OR IGNORE INTO sources(id,name,country,flag,adapter,"
@@ -170,16 +179,62 @@ class DB:
                 (book_id,)).fetchone()
 
     def save_progress(self, book_id: int, page: int, scroll_pct: float,
-                      zoom: float, layout: str, night: bool) -> None:
+                      zoom: float, layout: str, theme: str = "light") -> None:
         with self._lock, self.connect() as conn:
             conn.execute(
                 "INSERT INTO reading_progress(book_id,page,scroll_pct,zoom,layout,"
-                "night,updated_at) VALUES(?,?,?,?,?,?,?) "
+                "night,theme,updated_at) VALUES(?,?,?,?,?,?,?,?) "
                 "ON CONFLICT(book_id) DO UPDATE SET page=excluded.page,"
                 "scroll_pct=excluded.scroll_pct,zoom=excluded.zoom,"
-                "layout=excluded.layout,night=excluded.night,"
+                "layout=excluded.layout,night=excluded.night,theme=excluded.theme,"
                 "updated_at=excluded.updated_at",
-                (book_id, page, scroll_pct, zoom, layout, int(night), utcnow()))
+                (book_id, page, scroll_pct, zoom, layout,
+                 int(theme == "night"), theme, utcnow()))
+
+    def reading_tick(self, book_id: int, seconds: float, page: int) -> None:
+        """阅读心跳：按天累计秒数与最深页（书架"本周阅读"统计用）。"""
+        day = utcnow()[:10]
+        with self._lock, self.connect() as conn:
+            conn.execute(
+                "INSERT INTO reading_daily(day,seconds,max_page) VALUES(?,?,?) "
+                "ON CONFLICT(day) DO UPDATE SET seconds=seconds+excluded.seconds,"
+                "max_page=MAX(max_page,excluded.max_page)",
+                (day, seconds, page))
+
+    def week_minutes(self) -> int:
+        with self.connect() as conn:
+            row = conn.execute(
+                "SELECT COALESCE(SUM(seconds),0) s FROM reading_daily "
+                "WHERE day >= date('now','-6 days')").fetchone()
+        return int((row["s"] or 0) / 60)
+
+    # ---- 标注 ----
+    def list_annotations(self, book_id: int) -> List[sqlite3.Row]:
+        with self.connect() as conn:
+            return conn.execute(
+                "SELECT * FROM annotations WHERE book_id=? ORDER BY page, id",
+                (book_id,)).fetchall()
+
+    def add_annotation(self, book_id: int, page: int, kind: str,
+                       x0: float, y0: float, x1: float, y1: float,
+                       color: str, text: str) -> int:
+        with self._lock, self.connect() as conn:
+            cur = conn.execute(
+                "INSERT INTO annotations(book_id,page,kind,x0,y0,x1,y1,color,"
+                "text,created_at) VALUES(?,?,?,?,?,?,?,?,?,?)",
+                (book_id, page, kind, x0, y0, x1, y1, color, text[:500],
+                 utcnow()))
+            return int(cur.lastrowid)
+
+    def update_annotation(self, ann_id: int, kind: str, color: str,
+                          text: str) -> None:
+        with self._lock, self.connect() as conn:
+            conn.execute("UPDATE annotations SET kind=?,color=?,text=? WHERE id=?",
+                         (kind, color, text[:500], ann_id))
+
+    def delete_annotation(self, ann_id: int) -> None:
+        with self._lock, self.connect() as conn:
+            conn.execute("DELETE FROM annotations WHERE id=?", (ann_id,))
 
     def list_bookmarks(self, book_id: int) -> List[sqlite3.Row]:
         with self.connect() as conn:

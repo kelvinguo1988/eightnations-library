@@ -2,7 +2,7 @@
 {% block title %}书架 · 八国联军图书馆{% endblock %}
 {% block content %}
 <h2>书架</h2>
-<div class="sub">共 {{ total }} 册{{ {'reading':'在读','favorite':'收藏','done':'已归档'}[tab] }} · 阅读进度自动记忆</div>
+<div class="sub">共 {{ total }} 册{{ {'reading':'在读','favorite':'收藏','done':'已归档'}[tab] }} · 阅读进度自动记忆 · 🔥 本周阅读 {{ week_min }} 分钟</div>
 
 {% if hero %}
 <div class="hero-card">

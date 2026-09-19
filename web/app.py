@@ -169,7 +169,8 @@ def bookshelf(request: Request, tab: str = "reading"):
             cards.append({"row": r, "rpage": None, "pct": None,
                           "cover": u["cover"] if u["cover_exists"] else ""})
     return templates.TemplateResponse(request, "bookshelf.html", common_ctx(
-        request, d, cards=cards, hero=hero, tab=tab, total=total))
+        request, d, cards=cards, hero=hero, tab=tab, total=total,
+        week_min=d.week_minutes()))
 
 
 # ---------------------------------------------------------------- 书城（原书库）
@@ -260,9 +261,10 @@ def reader(book_id: int, request: Request, p: int = 0):
     if p:                       # URL 指定页码优先（书签/检索跳转）
         prog_d.update(page=p, scroll_pct=0)
     bms = [dict(b) for b in d.list_bookmarks(book_id)]
+    anns = [dict(a) for a in d.list_annotations(book_id)]
     return templates.TemplateResponse(request, "read.html", common_ctx(
         request, d, b=row, pdf_url=pdf_url, total_pages=total_pages or None,
-        prog=prog_d, bookmarks=bms,
+        prog=prog_d, bookmarks=bms, annotations=anns,
         title_disp=jp2t(row["alt_title"] or row["title"])))
 
 
@@ -278,7 +280,7 @@ async def api_progress(book_id: int, request: Request):
         return JSONResponse({"error": "参数不合法"}, status_code=400)
     d.save_progress(book_id, page, scroll_pct, zoom,
                     str(body.get("layout") or "scroll"),
-                    bool(body.get("night")))
+                    str(body.get("theme") or "light"))
     return {"ok": True}
 
 
@@ -306,6 +308,90 @@ async def api_bookmark_add(request: Request):
 def api_bookmark_del(book_id: int, page: int):
     get_db().delete_bookmark(book_id, page)
     return {"ok": True}
+
+
+@app.get("/api/annotations")
+def api_annotations(book_id: int):
+    d = get_db()
+    return [dict(a) for a in d.list_annotations(book_id)]
+
+
+@app.post("/api/annotations")
+async def api_annotation_add(request: Request):
+    d = get_db()
+    body = await request.json()
+    try:
+        book_id, page = int(body["book_id"]), int(body["page"])
+        x0, y0, x1, y1 = (min(max(float(body[k]), 0), 1) for k in
+                          ("x0", "y0", "x1", "y1"))
+        if x1 - x0 < 0.01 or y1 - y0 < 0.01:
+            return JSONResponse({"error": "选区太小"}, status_code=400)
+    except (KeyError, TypeError, ValueError):
+        return JSONResponse({"error": "参数不合法"}, status_code=400)
+    if not d.get_book(book_id):
+        return JSONResponse({"error": "书不存在"}, status_code=404)
+    ann_id = d.add_annotation(book_id, page,
+                              str(body.get("kind") or "highlight"),
+                              x0, y0, x1, y1,
+                              str(body.get("color") or "#ffe066"),
+                              str(body.get("text") or ""))
+    return {"ok": True, "id": ann_id}
+
+
+@app.patch("/api/annotations/{ann_id}")
+async def api_annotation_edit(ann_id: int, request: Request):
+    d = get_db()
+    body = await request.json()
+    d.update_annotation(ann_id, str(body.get("kind") or "highlight"),
+                        str(body.get("color") or "#ffe066"),
+                        str(body.get("text") or ""))
+    return {"ok": True}
+
+
+@app.delete("/api/annotations/{ann_id}")
+def api_annotation_del(ann_id: int):
+    get_db().delete_annotation(ann_id)
+    return {"ok": True}
+
+
+@app.post("/api/reading-tick")
+async def api_reading_tick(request: Request):
+    d = get_db()
+    body = await request.json()
+    try:
+        d.reading_tick(int(body["book_id"]),
+                       min(max(float(body.get("seconds") or 0), 0), 120),
+                       int(body.get("page") or 0))
+    except (KeyError, TypeError, ValueError):
+        return JSONResponse({"error": "参数不合法"}, status_code=400)
+    return {"ok": True}
+
+
+@app.get("/export/annotations/{book_id}.md")
+def export_annotations_md(book_id: int):
+    d = get_db()
+    row = d.get_book(book_id)
+    if not row:
+        return HTMLResponse("未找到该书", status_code=404)
+    title = row["alt_title"] or row["title"]
+    lines = [f"# 《{title}》 标注导出", "",
+             f"- 来源：{row['item_url']}",
+             f"- 导出时间：{utcnow()}", ""]
+    n = 0
+    for a in d.list_annotations(book_id):
+        n += 1
+        kind = {"highlight": "高亮", "underline": "下划线",
+                "note": "备注"}.get(a["kind"], a["kind"])
+        lines.append(f"## 第 {a['page']} 页 · {kind}")
+        if a["text"]:
+            lines.append(f"> {a['text']}")
+        lines.append("")
+    if not n:
+        lines.append("（暂无标注）")
+    text = "\n".join(lines)
+    return Response(text, media_type="text/markdown; charset=utf-8",
+                    headers={"Content-Disposition":
+                             f'attachment; filename="annotations_{book_id}.md"'})
 
 
 @app.post("/api/favorite/{book_id}")
