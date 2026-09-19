@@ -241,6 +241,8 @@ function renderAllOverlays() {
   for (const div of pagesEl.children) renderOverlays(+div.dataset.page);
 }
 
+const KIND_ICON = { highlight: "🖍", underline: "▁", note: "📝" };
+
 function openEditor(a, holder) {
   closeEditor();
   editTarget = a;
@@ -248,24 +250,46 @@ function openEditor(a, holder) {
   ed.className = "ann-editor";
   ed.id = "ann-editor";
   ed.innerHTML = `
+    <div class="ed-head">
+      <span class="ed-ic">${KIND_ICON[a.kind] || "🖍"}</span>
+      <span class="ed-title">${KINDS[a.kind] || a.kind} · 第 ${a.page} 页</span>
+      <button class="ed-close" title="关闭">✕</button>
+    </div>
     <div class="swatches">${COLORS.map((c) =>
-      `<button class="sw ${c === a.color ? "on" : ""}" data-c="${c}" style="--c:${c}"></button>`).join("")}</div>
+      `<button class="sw ${c === a.color ? "on" : ""}" data-c="${c}"
+        style="--c:${c}" title="换色"><span class="tick">✓</span></button>`).join("")}</div>
     <div class="kinds">${Object.entries(KINDS).map(([k, v]) =>
-      `<button class="kd ${k === a.kind ? "on" : ""}" data-k="${k}">${v}</button>`).join("")}</div>
-    <textarea placeholder="备注 / 划词文字…">${a.text || ""}</textarea>
-    <div class="ed-row"><button class="ed-save">保存</button><button class="ed-del">删除</button></div>`;
+      `<button class="kd ${k === a.kind ? "on" : ""}" data-k="${k}">${KIND_ICON[k]} ${v}</button>`).join("")}</div>
+    <textarea placeholder="备注 / 划词文字…（保存到标注）">${a.text || ""}</textarea>
+    <div class="ed-row">
+      <button class="ed-del">🗑 删除</button>
+      <button class="ed-save">✓ 保存</button>
+    </div>`;
   holder.appendChild(ed);
-  const top = Math.min(a.y1 * 100 + 2, 62);
-  ed.style.top = top + "%";
-  ed.style.left = Math.min(a.x0 * 100, 55) + "%";
-  ed.querySelectorAll(".sw").forEach((b) => (b.onclick = () => { a.color = b.dataset.c; syncEdit(a, holder); }));
-  ed.querySelectorAll(".kd").forEach((b) => (b.onclick = () => { a.kind = b.dataset.k; syncEdit(a, holder); }));
+  // 视口内摆放：默认在选区下方，靠底则翻到上方；左右防溢出
+  const vw = holder.clientWidth;
+  const topPct = Math.min(a.y1 * 100 + 2.5, 100);
+  ed.style.top = Math.min(topPct, 78) + "%";
+  const leftPx = Math.min(Math.max(a.x0 * vw, 8), vw - 268);
+  ed.style.left = leftPx + "px";
+  ed.querySelector(".ed-close").onclick = closeEditor;
+  ed.querySelectorAll(".sw").forEach((b) => (b.onclick = () => {
+    a.color = b.dataset.c; syncEdit(a, holder);
+  }));
+  ed.querySelectorAll(".kd").forEach((b) => (b.onclick = () => {
+    a.kind = b.dataset.k; syncEdit(a, holder);
+  }));
+  const ta = ed.querySelector("textarea");
+  ta.onkeydown = (e) => {
+    if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) ed.querySelector(".ed-save").click();
+  };
+  setTimeout(() => { if (editTarget === a) ta.focus({ preventScroll: true }); }, 60);
   ed.querySelector(".ed-save").onclick = async () => {
-    a.text = ed.querySelector("textarea").value;
+    a.text = ta.value;
     await fetch(`/api/annotations/${a.id}`, { method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ kind: a.kind, color: a.color, text: a.text }) });
-    closeEditor(); renderOverlays(a.page); toast("已保存");
+    closeEditor(); renderOverlays(a.page); toast("已保存 ✓");
   };
   ed.querySelector(".ed-del").onclick = async () => {
     await fetch(`/api/annotations/${a.id}`, { method: "DELETE" });
@@ -299,6 +323,7 @@ function bindAnnotation() {
     const holder = e.target.closest(".page");
     if (!holder) return;
     if (e.target.closest(".ann-editor")) return;
+    if (!e.target.closest(".ann") && !annMode) closeEditor();
     if (e.target.closest(".ann")) {           // 点击已有标注 → 编辑
       if (!annMode) {
         const a = anns.find((x) => x.id === +e.target.dataset.id);
