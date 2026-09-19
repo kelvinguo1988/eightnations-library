@@ -5,9 +5,11 @@ manage.py（手动）与 scheduler.py（守护心跳）共用；进程内 HourQu
 """
 import json
 import os
+import re
 from typing import Optional
 
 from core.http import HttpClient
+from core.text import jp2t
 from core.limiter import HourQuota
 from core.models import BookMeta, DownloadResult
 from sites import get_adapter
@@ -38,6 +40,29 @@ def _dest_dir(source_id: str, collection: str, uid: str) -> str:
     return os.path.join(BOOKS_DIR, source_id, collection or "misc", uid)
 
 
+def _sanitize_filename(s: str, cap: int = 60) -> str:
+    s = re.sub(r'[\\/:*?"<>|\s]+', "_", s).strip("._")
+    return s[:cap]
+
+
+def _title_link(dest_dir: str, output: str, meta: BookMeta,
+                idx: int, total: int) -> Optional[str]:
+    """为 PDF 建立书名硬链接（NAS 文件搜索可按书名找到；同目录同 fs 零空间）。"""
+    if os.path.basename(output) == "cover.pdf":
+        return None
+    t = _sanitize_filename(jp2t(meta.alt_title or meta.title))
+    if not t:
+        return None
+    suffix = "" if total == 1 else f"_{idx:02d}"
+    link = os.path.join(dest_dir, f"{meta.source_uid}_{t}{suffix}.pdf")
+    try:
+        if not os.path.exists(link):
+            os.link(output, link)
+        return link
+    except OSError:
+        return None
+
+
 def fetch_one(d, row, quality: str, quota: HourQuota) -> bool:
     """下载单本。返回 False 表示配额用尽，调用方应结束本轮。"""
     src = row["source_id"]
@@ -63,6 +88,8 @@ def fetch_one(d, row, quality: str, quota: HourQuota) -> bool:
                      result.bytes_done, result.outputs)
         d.update_download_info(row["id"], os.path.join(dest, "cover.jpg"),
                                result.pages)
+        for i, out in enumerate(result.outputs, 1):
+            _title_link(dest, out, meta, i, len(result.outputs))
         d.set_status(row["id"], "done")
         d.log(f"完成: {result.pages} 页 / {result.bytes_done / 1e6:.1f} MB "
               f"-> {dest}", source=src, book_id=row["id"])

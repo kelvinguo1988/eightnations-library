@@ -203,6 +203,7 @@ data/
 ```
 
 备份策略：拷 `db/library.db` + `meta.json`（图像可随时重下，不纳入备份）。
+`manage.py links` 可为存量 PDF 补建书名硬链接（新下载自动创建）。
 
 **重部署安全性**：全部持久数据（书目/审核状态/任务/分类/PDF）都在挂载卷
 `/share/Container/eightnations/data`，`docker compose pull && up -d` 重建容器不触碰
@@ -212,6 +213,28 @@ data/
 ```bash
 docker exec eightnations python3 manage.py doctor
 # 检查：库结构 / done 书目 vs 磁盘 PDF 对账 / 孤儿目录 / 站点配置 / 节流目录
+```
+
+**如何确认数据真的落在 NAS**（而非容器内部）：
+
+```bash
+# ① 看容器的卷映射（有 → /data 一行即为已挂载）
+docker inspect eightnations --format '{{range .Mounts}}{{.Source}} -> {{.Destination}}{{println}}{{end}}'
+
+# ② 数 PDF 文件（书名硬链接与实体各计一次）
+find /share/Container/eightnations/data/books -name "*.pdf" | wc -l
+
+# ③ 按书名搜文件（每个 PDF 都有 "馆藏编号_书名.pdf" 硬链接）
+find /share/Container/eightnations/data/books -name "*永樂大典*"
+```
+
+也可以在 Web 设置页顶部「💾 存储状态」面板直接看数据目录与用量。
+若 ① 无输出（从未挂载）：说明旧数据在容器内部，先抢救再重建：
+
+```bash
+docker cp eightnations:/data /share/Container/eightnations/data   # 抢救旧数据到宿主机
+docker compose down && docker compose up -d                        # 用仓库 compose 重建（自带挂载）
+docker exec eightnations python3 manage.py doctor                  # 校验
 ```
 
 ## 故障排查

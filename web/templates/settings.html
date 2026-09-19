@@ -2,6 +2,16 @@
 {% block title %}设置 · 八国联军图书馆{% endblock %}
 {% block content %}
 <h2>站点设置</h2>
+<div class="src-card" style="border-left:3px solid var(--acc2)">
+  <div class="hd">💾 存储状态</div>
+  <dl class="kv" style="background:none;border:none;padding:0;margin:0">
+    <dt>数据目录</dt><dd><code>{{ storage.data_dir }}</code><div class="mut">{{ storage.host_hint }}——重建容器不触碰此目录，全部数据持久保存</div></dd>
+    <dt>数据库</dt><dd>library.db · {{ storage.db|bytes_h }}（书目/任务/审核状态）</dd>
+    <dt>书籍文件</dt><dd>{{ storage.books|bytes_h }}（PDF 按馆藏编号存放在 books/&lt;馆&gt;/&lt;专藏&gt;/&lt;编号&gt;/，同名书名硬链接可被 NAS 文件搜索）</dd>
+    <dt>快照 / 日志</dt><dd>{{ storage.snapshots|bytes_h }} / {{ storage.logs|bytes_h }}</dd>
+    <dt>完整性自检</dt><dd><a href="javascript:void(0)" onclick="alert('在 NAS 的 SSH 中执行：docker exec eightnations python3 manage.py doctor')">重建容器后运行 manage.py doctor 校验</a></dd>
+  </dl>
+</div>
 <div class="sub">每馆独立的开关、每小时配额与图像档位；保存后调度器在下一心跳生效。调度心跳默认 15 分钟一轮（容器环境变量 EIGHTNATIONS_HEARTBEAT 可调，秒）</div>
 <form method="post" action="/settings">
 {% for s in sources %}

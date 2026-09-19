@@ -157,6 +157,31 @@ def cmd_import_na_jp(args) -> None:
         print("下一步: python3 manage.py approve --source na_jp")
 
 
+def cmd_links(args) -> None:
+    """为已归档 PDF 补建书名硬链接（NAS 文件搜索按书名可找到）。
+
+    幂等：已存在的链接跳过。新下载的书由流水线自动创建，无需再跑。
+    """
+    from core.pipeline import _title_link
+    d = db()
+    created = skipped = 0
+    for r in d.list_books(status="done", limit=100000):
+        meta = row_to_meta(r)
+        dest = os.path.join(BOOKS_DIR, r["source_id"],
+                            r["collection"] or "misc", r["source_uid"])
+        if not os.path.isdir(dest):
+            continue
+        pdfs = sorted(f for f in os.listdir(dest)
+                      if f.endswith(".pdf") and not f.endswith(".part")
+                      and f != "cover.pdf")
+        for i, p in enumerate(pdfs, 1):
+            if _title_link(dest, os.path.join(dest, p), meta, i, len(pdfs)):
+                created += 1
+            else:
+                skipped += 1
+    print(f"书名链接：新建 {created}，已存在 {skipped}")
+
+
 def cmd_doctor(args) -> None:
     """数据自检：库结构 / 完成书目与磁盘 PDF 对账 / 站点配置 / 节流目录。
 
@@ -404,6 +429,8 @@ def main() -> None:
     sub.add_parser("backfill-na-jp").set_defaults(func=cmd_backfill_na_jp)
 
     sub.add_parser("doctor").set_defaults(func=cmd_doctor)
+
+    sub.add_parser("links").set_defaults(func=cmd_links)
 
     p = sub.add_parser("enrich-na-jp")
     p.add_argument("--budget", type=int, default=30,

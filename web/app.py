@@ -328,10 +328,34 @@ def jobs(request: Request):
 
 
 # ---------------------------------------------------------------- 设置
+def _dir_size(path: str) -> int:
+    total = 0
+    if os.path.isdir(path):
+        for root, _, files in os.walk(path):
+            for f in files:
+                try:
+                    total += os.path.getsize(os.path.join(root, f))
+                except OSError:
+                    pass
+    return total
+
+
 @app.get("/settings", response_class=HTMLResponse)
 def settings_page(request: Request):
     d = get_db()
-    return templates.TemplateResponse(request, "settings.html", common_ctx(request, d))
+    # 存储面板：让"数据到底在哪、有多少"直接可见
+    storage = {
+        "data_dir": DATA_DIR,
+        "host_hint": os.environ.get(
+            "EIGHTNATIONS_HOST_DATA",
+            "NAS 宿主机路径见 docker-compose.yml 卷映射（默认 /share/Container/eightnations/data）"),
+        "db": _dir_size(DB_PATH),
+        "books": _dir_size(BOOKS_DIR),
+        "snapshots": _dir_size(os.path.join(DATA_DIR, "snapshots")),
+        "logs": _dir_size(os.path.join(DATA_DIR, "logs")),
+    }
+    return templates.TemplateResponse(request, "settings.html", common_ctx(
+        request, d, storage=storage))
 
 
 @app.post("/settings")
