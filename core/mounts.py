@@ -36,15 +36,31 @@ def data_mount() -> dict:
 
 
 def migration_commands(source: Optional[str]) -> str:
-    """生成把当前卷内数据迁移到固定 NAS 路径的命令（在 NAS SSH 中执行）。"""
+    """生成迁移指引命令（在 NAS SSH 中执行）。
+
+    注意场景：匿名卷警告可能在"重建后仍未挂载"时再次出现（新哈希），
+    此时绝不能盲目 docker cp 当前容器（可能用空卷覆盖已迁移数据）——
+    先诊断容器挂载与固定路径现状，再决定拷贝方向。
+    """
     dst = "/share/Container/eightnations/data"
     return "\n".join([
-        "# ① 在 NAS 建固定目录",
-        f"mkdir -p {dst}",
-        "# ② 把现有数据从容器拷到固定目录（不删原卷，最安全）",
-        "docker cp eightnations:/data/. " + dst + "/",
-        "# ③ 用仓库 compose 重建容器（自带固定路径挂载）",
+        "# ① 诊断：当前容器的挂载方式（若 Type=volume 说明又没挂上固定路径）",
+        "docker inspect eightnations --format "
+        "'{{range .Mounts}}{{.Type}} {{.Name}} {{.Source}} -> {{.Destination}}{{println}}{{end}}'",
+        "#    同时列出所有容器（注意是否有同名/旧容器并存）",
+        "docker ps -a --format '{{.Names}}  {{.Status}}'",
+        "",
+        "# ② 诊断：固定路径里是否已有迁移好的数据",
+        f"ls -la {dst}",
+        "",
+        "# ③ 若固定路径已有数据 → 问题只是容器未挂载：",
+        "#    删除当前未挂载的容器，用仓库 compose 重建（compose 内含 volumes 段）",
         "cd /share/Container/eightnations && docker compose down && docker compose up -d",
-        "# ④ 校验（应全部 ✓，且数据目录显示固定路径）",
+        "",
+        "# ④ 若固定路径为空 → 从旧匿名卷拷贝（<旧卷ID> 用 docker volume ls 里的真实值，",
+        "#    即 doctor 报错里显示的那个哈希）：",
+        "#    docker run --rm -v <旧卷ID>:/from -v " + dst + ":/to ghcr.io/kelvinguo1988/eightnations-library:latest sh -c 'cp -a /from/. /to/'",
+        "",
+        "# ⑤ 校验：应全绿，且本面板显示 ✓ 已绑定固定路径",
         "docker exec eightnations python3 manage.py doctor",
     ])
