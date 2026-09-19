@@ -135,6 +135,7 @@ class DB:
         return conn
 
     def init(self) -> None:
+        os.makedirs(os.path.dirname(self.path) or ".", exist_ok=True)
         with self._lock, self.connect() as conn:
             conn.executescript(_SCHEMA)
             # 老库迁移：补新列（新库建表时已含，ALTER 跳过）

@@ -1,6 +1,10 @@
 #!/bin/sh
 # 八国联军图书馆容器入口：调度守护 + Web 前端 同容器
 # scheduler 若意外退出则 30s 后自动拉起（容器只随 compose 生命周期终止）
+mkdir -p /data/logs /data/db || {
+  echo "[entrypoint] ✗ /data 不可写——检查容器存储映射是否指向有效的宿主机目录" >&2
+  exit 1
+}
 (
   while true; do
     python3 scheduler.py >> /data/logs/scheduler.log 2>&1
