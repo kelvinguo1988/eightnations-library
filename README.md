@@ -239,6 +239,41 @@ docker exec eightnations python3 manage.py doctor
 # 检查：库结构 / done 书目 vs 磁盘 PDF 对账 / 孤儿目录 / 站点配置 / 节流目录
 ```
 
+**⚠️ 真实案例：数据落在 Docker 匿名卷（2026-09-19）**
+
+若容器创建时**没有**显式挂载宿主机目录，镜像的 `VOLUME /data` 声明会让 Docker
+自动分配一个**匿名卷**，数据实际存放在：
+
+```
+/Container/container-station-data/lib/docker/volumes/<哈希>/_data/books/...
+```
+
+这种状态下数据虽然持久（容器重启不丢），但 ① 路径深、File Station 不直观；
+② 删容器、Container Station 清理"未使用卷"、`docker compose down -v` 都可能
+**连数据一起删掉**。系统现已内置检测：设置页存储面板会显示当前挂载来源，
+若为匿名卷会**红色警告并给出迁移命令**；doctor 也会报此问题。
+
+**迁移到固定路径**（在 NAS SSH 中执行一次；先迁移、后删除，最安全）：
+
+```bash
+# ① 建固定目录
+mkdir -p /share/Container/eightnations/data
+# ② 把匿名卷里的现有数据完整拷出（不删原卷）
+docker cp eightnations:/data/. /share/Container/eightnations/data/
+# ③ 确认拷贝完整（应看到 books/ db/ 等）
+ls /share/Container/eightnations/data
+# ④ 用仓库 compose 重建容器（务必含 volumes 挂载段；Container Station
+#    里旧应用请先在界面删除，再用下方 compose 创建）
+cd /share/Container/eightnations
+curl -O https://raw.githubusercontent.com/kelvinguo1988/eightnations-library/main/docker-compose.yml
+docker compose up -d
+# ⑤ 校验：doctor 全绿 + 设置页存储面板显示"✅ 已绑定宿主机固定路径"
+docker exec eightnations python3 manage.py doctor
+```
+
+> 千万别在迁移前执行 `docker volume prune`、`docker compose down -v` 或在
+> Container Station 清理未使用的卷。
+
 **如何确认数据真的落在 NAS**（而非容器内部）：
 
 ```bash

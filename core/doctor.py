@@ -75,7 +75,19 @@ def run_checks(d, books_dir: str, data_dir: str) -> Tuple[List[dict], int]:
         "各馆配置正常" if not bad_cfg
         else f"已启用的 direct 站点缺目录 URL: {bad_cfg}")
 
-    # 5) 节流锁目录可写
+    # 5) 数据目录挂载来源（匿名卷 → 迁移警告）
+    from core.mounts import data_mount, migration_commands
+    m = data_mount()
+    if m["kind"] == "bind":
+        add("数据目录挂载", True, f"已绑定宿主机固定路径：{m['source']}")
+    elif m["kind"] == "volume":
+        add("数据目录挂载", False,
+            "⚠️ 数据在 Docker 匿名卷内（删容器/清理卷有丢失风险），"
+            "请按设置页指引迁移到固定路径。原卷位置：" + (m["source"] or "?"))
+    else:
+        add("数据目录挂载", True, "开发环境（非 Linux 容器），跳过")
+
+    # 6) 节流锁目录可写
     rt = os.path.join(data_dir, "runtime", "throttle")
     try:
         os.makedirs(rt, exist_ok=True)

@@ -22,6 +22,7 @@ from core.db import DB, utcnow                   # noqa: E402
 from core.importer import import_snapshot_files  # noqa: E402
 from core.pipeline import fetch_one, create_title_links   # noqa: E402
 from core.doctor import run_checks                # noqa: E402
+from core.mounts import data_mount, migration_commands  # noqa: E402
 from core.limiter import HourQuota               # noqa: E402
 from core.text import jp2t                       # noqa: E402
 
@@ -550,8 +551,13 @@ def _dir_size(path: str) -> int:
 def settings_page(request: Request):
     d = get_db()
     # 存储面板：让"数据到底在哪、有多少"直接可见
+    mnt = data_mount()
     storage = {
         "data_dir": DATA_DIR,
+        "mount_kind": mnt["kind"],
+        "mount_source": mnt["source"] or "",
+        "migrate_cmd": (migration_commands(mnt["source"])
+                        if mnt["kind"] == "volume" else ""),
         "host_hint": os.environ.get(
             "EIGHTNATIONS_HOST_DATA",
             "NAS 宿主机路径见 docker-compose.yml 卷映射（默认 /share/Container/eightnations/data）"),
