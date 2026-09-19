@@ -9,7 +9,11 @@
     <dt>数据库</dt><dd>library.db · {{ storage.db|bytes_h }}（书目/任务/审核状态）</dd>
     <dt>书籍文件</dt><dd>{{ storage.books|bytes_h }}（PDF 按馆藏编号存放在 books/&lt;馆&gt;/&lt;专藏&gt;/&lt;编号&gt;/，同名书名硬链接可被 NAS 文件搜索）</dd>
     <dt>快照 / 日志</dt><dd>{{ storage.snapshots|bytes_h }} / {{ storage.logs|bytes_h }}</dd>
-    <dt>完整性自检</dt><dd><a href="javascript:void(0)" onclick="alert('在 NAS 的 SSH 中执行：docker exec eightnations python3 manage.py doctor')">重建容器后运行 manage.py doctor 校验</a></dd>
+    <dt>页面维护</dt><dd>
+      <button class="btn primary" id="btn-doctor">🔍 运行自检</button>
+      <button class="btn" id="btn-links">🔗 补建书名链接</button>
+      <div id="maint-result" style="margin-top:10px"></div>
+    </dd>
   </dl>
 </div>
 <div class="sub">每馆独立的开关、每小时配额与图像档位；保存后调度器在下一心跳生效。调度心跳默认 15 分钟一轮（容器环境变量 EIGHTNATIONS_HEARTBEAT 可调，秒）</div>
@@ -69,4 +73,33 @@
     · 调度守护：nohup python3 scheduler.py（NAS 部署后随容器常驻）
   </div>
 </div>
+<script>
+function renderChecks(checks){
+  return checks.map(c =>
+    `<div style="padding:5px 0;border-bottom:1px dashed var(--line);font-size:13px">
+       <span style="color:${c.ok?'var(--acc2)':'var(--red)'};font-weight:700">${c.ok?'✓':'✗'}</span>
+       <b>${c.name}</b> — <span style="color:var(--tx2)">${c.detail}</span></div>`).join('');
+}
+document.getElementById('btn-doctor').onclick = async function(){
+  this.disabled = true; this.textContent = '⏳ 检查中…';
+  try{
+    const r = await (await fetch('/api/doctor')).json();
+    document.getElementById('maint-result').innerHTML =
+      renderChecks(r.checks) +
+      `<div style="margin-top:10px;font-weight:700;color:${r.ok?'var(--acc2)':'var(--red)'}">
+         ${r.ok?'✅ 全部检查通过，数据完好':'✗ 发现 '+r.issues+' 个问题（见上）'}</div>`;
+  }catch(e){ document.getElementById('maint-result').textContent = '自检失败: '+e; }
+  this.disabled = false; this.textContent = '🔍 运行自检';
+};
+document.getElementById('btn-links').onclick = async function(){
+  this.disabled = true; this.textContent = '⏳ 处理中…';
+  try{
+    const r = await (await fetch('/api/links',{method:'POST'})).json();
+    document.getElementById('maint-result').innerHTML =
+      `<div style="padding:5px 0;font-size:13px;color:var(--acc2)">✓ 书名硬链接：新建 ${r.created}，已存在 ${r.skipped}
+       （NAS 文件搜索现可按书名找到）</div>`;
+  }catch(e){ document.getElementById('maint-result').textContent = '失败: '+e; }
+  this.disabled = false; this.textContent = '🔗 补建书名链接';
+};
+</script>
 {% endblock %}

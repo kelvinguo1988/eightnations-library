@@ -20,7 +20,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from core.db import DB, utcnow                   # noqa: E402
 from core.importer import import_snapshot_files  # noqa: E402
-from core.pipeline import fetch_one              # noqa: E402
+from core.pipeline import fetch_one, create_title_links   # noqa: E402
+from core.doctor import run_checks                # noqa: E402
 from core.limiter import HourQuota               # noqa: E402
 from core.text import jp2t                       # noqa: E402
 
@@ -554,7 +555,7 @@ def settings_page(request: Request):
         "host_hint": os.environ.get(
             "EIGHTNATIONS_HOST_DATA",
             "NAS 宿主机路径见 docker-compose.yml 卷映射（默认 /share/Container/eightnations/data）"),
-        "db": _dir_size(DB_PATH),
+        "db": os.path.getsize(DB_PATH) if os.path.isfile(DB_PATH) else 0,
         "books": _dir_size(BOOKS_DIR),
         "snapshots": _dir_size(os.path.join(DATA_DIR, "snapshots")),
         "logs": _dir_size(os.path.join(DATA_DIR, "logs")),
@@ -618,6 +619,23 @@ async def upload_snapshot(source: str = Form(...),
 @app.get("/favicon.ico")
 def favicon():
     return Response(status_code=204)
+
+
+@app.get("/api/doctor")
+def api_doctor():
+    """设置页「运行自检」：与 manage.py doctor 同一实现。"""
+    d = get_db()
+    checks, issues = run_checks(d, BOOKS_DIR, DATA_DIR)
+    return {"ok": issues == 0, "issues": issues, "checks": checks}
+
+
+@app.post("/api/links")
+def api_links():
+    """补建书名硬链接（幂等）。"""
+    d = get_db()
+    created, skipped = create_title_links(d)
+    d.log(f"书名链接补建: 新建 {created}，已存在 {skipped}")
+    return {"ok": True, "created": created, "skipped": skipped}
 
 
 @app.get("/api/health")

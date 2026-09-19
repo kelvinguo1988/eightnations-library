@@ -45,9 +45,34 @@ def _sanitize_filename(s: str, cap: int = 60) -> str:
     return s[:cap]
 
 
+def create_title_links(d) -> tuple:
+    """为全部已归档书补建书名硬链接；返回 (新建, 已存在)。幂等。
+
+    只处理实体 PDF（book*.pdf），排除已有的书名链接文件（<编号>_*.pdf），
+    避免对链接再做链接与重复计数。
+    """
+    created = skipped = 0
+    for r in d.list_books(status="done", limit=100000):
+        meta = row_to_meta(r)
+        dest = _dest_dir(r["source_id"], r["collection"], r["source_uid"])
+        if not os.path.isdir(dest):
+            continue
+        pdfs = sorted(f for f in os.listdir(dest)
+                      if f.endswith(".pdf") and not f.endswith(".part")
+                      and f != "cover.pdf"
+                      and not re.match(r"^\d+_.+\.pdf$", f))
+        for i, p in enumerate(pdfs, 1):
+            state = _title_link(dest, os.path.join(dest, p), meta, i, len(pdfs))
+            if state == "new":
+                created += 1
+            elif state == "exists":
+                skipped += 1
+    return created, skipped
+
+
 def _title_link(dest_dir: str, output: str, meta: BookMeta,
                 idx: int, total: int) -> Optional[str]:
-    """为 PDF 建立书名硬链接（NAS 文件搜索可按书名找到；同目录同 fs 零空间）。"""
+    """为 PDF 建立书名硬链接。返回 "new"（新建）/ "exists"（已存在）/ None（失败）。"""
     if os.path.basename(output) == "cover.pdf":
         return None
     t = _sanitize_filename(jp2t(meta.alt_title or meta.title))
@@ -55,10 +80,11 @@ def _title_link(dest_dir: str, output: str, meta: BookMeta,
         return None
     suffix = "" if total == 1 else f"_{idx:02d}"
     link = os.path.join(dest_dir, f"{meta.source_uid}_{t}{suffix}.pdf")
+    if os.path.exists(link):
+        return "exists"
     try:
-        if not os.path.exists(link):
-            os.link(output, link)
-        return link
+        os.link(output, link)
+        return "new"
     except OSError:
         return None
 
