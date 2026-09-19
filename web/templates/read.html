@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>{{ title_disp }} · 阅读</title>
 <link rel="stylesheet" href="/static/pdfjs/pdf_viewer.min.css">
-<link rel="stylesheet" href="/static/reader.css">
+<link rel="stylesheet" href="/static/reader.css?v=20260919b">
 </head>
 <body>
 <div id="reader" class="{{ 'night' if prog.get('night') }}"
@@ -47,6 +47,6 @@
   </div>
   <div id="toast" hidden></div>
 </div>
-<script type="module" src="/static/reader.js"></script>
+<script type="module" src="/static/reader.js?v=20260919b"></script>
 </body>
 </html>

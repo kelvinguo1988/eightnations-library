@@ -4,12 +4,12 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>{% block title %}八国联军图书馆{% endblock %}</title>
-<link rel="stylesheet" href="/static/style.css">
+<link rel="stylesheet" href="/static/style.css?v=20260919b">
 </head>
 <body>
 <nav class="nav">
   <div class="nav-inner">
-    <a class="brand" href="/">📚 八国联军图书馆</a>
+    <a class="brand" href="/">📚<span class="brand-t">八国联军图书馆</span></a>
     <div class="nav-links">
       <a href="/" class="{{ 'on' if nav=='shelf' else '' }}">书架</a>
       <a href="/explore" class="{{ 'on' if nav=='library' else '' }}">书城</a>
