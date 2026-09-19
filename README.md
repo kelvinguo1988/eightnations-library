@@ -13,7 +13,9 @@
 - **多馆适配器**：每馆一个 `sites/<id>.py`，统一"目录发现 → 人工审核 → 计划下载"流水线
 - **防封禁采集**：预算制增量收割、跨进程文件锁节流、限流自动冷却与续传、页级断点
 - **每小时配额**：每源每小时 ≤N 册的真实滑动窗口，可按馆独立配置
-- **Web 前端**：书库筛选/详情内嵌阅读器/新书审核（可勾选立即下载）/任务面板/设置
+- **书城 + 阅读器**：书架（继续阅读/收藏/进度）/ 自定义 PDF.js 阅读器（进度记忆、书签、
+  即时标注、纸张主题、双页/连滚/单页、阅读统计、标注导出）/ 书城筛选 / 手机平板自适应
+- **Web 管理**：新书审核（可勾选立即下载）/ 任务面板 / 设置（每馆配额、快照上传、存储状态面板）
 - **元数据完整**：书名（原题+罗马字）、著者、朝代、主题词分类、架藏号、卷页数、权利声明
 - **双架构镜像**：ghcr.io 自动构建 linux/amd64 + arm64，NAS 免构建直接拉取
 
@@ -192,18 +194,40 @@ rsync -av "/Users/<你>/Documents/coding/八国联军图书馆/data/" \
 
 **版本发布**：`git tag v0.1 && git push --tags` 额外产出 `:0.1` 镜像，`latest` 跟随 main。
 
-## 数据与备份
+## 数据保存在哪（NAS 路径详解）
+
+**结论：所有数据只保存在 NAS 宿主机的一个固定目录里，容器重建不丢。**
+路径由 `docker-compose.yml` 的卷映射决定（三端对照）：
+
+| 视角 | 路径 |
+|------|------|
+| NAS 宿主机（File Station 可见） | `/share/Container/eightnations/data` |
+| 容器内（应用读写） | `/data`（环境变量 `EIGHTNATIONS_DATA=/data`） |
+| 本机开发 | 项目目录下 `data/`（或 `EIGHTNATIONS_DATA` 指定） |
+
+目录结构（NAS 上 File Station 直接能看到）：
 
 ```
-data/
-├── db/library.db              # 全部状态（书/任务/事件）——备份这一份即可
-├── books/<馆>/<专藏>/<条目>/  # book.pdf(+多卷) · cover.jpg · meta.json(含sha256)
-├── snapshots/                 # 目录快照与条目详情（可重导，非必需备份）
-└── logs/                      # scheduler/web 日志
+/share/Container/eightnations/data/
+├── db/library.db               # 全部记录：书目/审核状态/任务/进度/书签/标注/统计
+├── books/<馆>/<专藏>/<编号>/   # 每本书一个目录：
+│     ├── book.pdf              #    正文 PDF（多卷为 book_01.pdf、book_02.pdf…）
+│     ├── <编号>_<书名>.pdf     #    书名硬链接（与 book.pdf 同一份数据，搜书名用）
+│     ├── cover.jpg             #    封面缩略图
+│     └── meta.json             #    元数据+下载记录（页数/体积/sha256/时间）
+├── snapshots/                  # 目录快照与条目详情（可重导，非必需备份）
+├── runtime/throttle/           # 跨进程节流锁（自动生成）
+└── logs/                       # scheduler / web 日志
 ```
 
-备份策略：拷 `db/library.db` + `meta.json`（图像可随时重下，不纳入备份）。
-`manage.py links` 可为存量 PDF 补建书名硬链接（新下载自动创建）。
+要点：
+* **容器重建（`docker compose pull && up -d`）只换程序，绝不触碰上面的数据目录**——
+  已实测重建前后书目/任务/PDF 完全一致；
+* 注意"书名搜不到"的历史原因：正文文件固定叫 `book.pdf`（按编号组织），
+  **按书名搜索请搜硬链接文件**（`<编号>_<书名>.pdf`）；旧书跑一次
+  `docker exec eightnations python3 manage.py links` 补齐；
+* 备份策略：拷 `db/library.db`（唯一状态源）即可，PDF 可随时重下；
+* Web 设置页顶部「💾 存储状态」面板可随时查看数据目录与用量。
 
 **重部署安全性**：全部持久数据（书目/审核状态/任务/分类/PDF）都在挂载卷
 `/share/Container/eightnations/data`，`docker compose pull && up -d` 重建容器不触碰
@@ -258,9 +282,11 @@ docker exec eightnations python3 manage.py doctor                  # 校验
 
 ```
 core/     db(SQLite/WAL) · http(节流/重试/Range续传) · limiter(滑动窗口配额)
-          pdfbuild(流式JPEG组PDF) · pipeline(状态机) · importer(快照导入) · models
+          pdfbuild(流式JPEG组PDF) · pipeline(状态机) · importer(快照导入)
+          text(日文新字体→繁体) · models
 sites/    base.py(契约) · loc.py · na_jp.py · bnf.py（每馆一个适配器）
-web/      FastAPI+Jinja2 五页前端 + static/templates
+web/      FastAPI+Jinja2 前端（书架/书城/阅读器/详情/审核/任务/设置）+ static
+          （含 PDF.js 本地自托管 reader.js/reader.css）
 tools/    loc_snapshot.py(目录快照半自动) · loc_fill_details.py(补条目详情)
 fixtures/ 真实快照样例（回归测试用）
 manage.py 管理CLI    scheduler.py 调度守护    Dockerfile/compose/entrypoint.sh
@@ -268,6 +294,8 @@ manage.py 管理CLI    scheduler.py 调度守护    Dockerfile/compose/entrypoin
 
 ## 开发状态
 
-M1-M5 已完成（骨架/LoC 全量/Web/日本/上 NAS），M6 扩馆进行中（BnF ✅）。
-三轮代码审查累计修复 17 项（并发竞态、崩溃恢复、PDF 规范合规、跨进程节流等），
-关键路径均有离线回归测试。贡献前跑 `python3 -m py_compile core/*.py sites/*.py`。
+书城一期（R1 阅读器 + R2 书架/书城 + R3 标注/主题/统计）已上线；扩馆 M6 进行中
+（BnF ✅）。下一期 R4：划词区域 OCR（Tesseract）+ 查词跳转 + 跨书 FTS 检索 + 朗读
+（设计见 docs/READER-DESIGN.md）。四轮代码审查累计修复 19 项（并发竞态、崩溃恢复、
+PDF 规范合规、跨进程节流、移动端自适应等），关键路径均有离线回归测试。
+贡献前跑 `python3 -m py_compile core/*.py sites/*.py`。
