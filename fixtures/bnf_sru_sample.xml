@@ -1,0 +1,435 @@
+<?xml version="1.0" encoding="UTF-8"?><srw:searchRetrieveResponse xmlns:srw="http://www.loc.gov/zing/srw/" xmlns="http://catalogue.bnf.fr/namespaces/InterXMarc" xmlns:ixm="http://catalogue.bnf.fr/namespaces/InterXMarc" xmlns:mn="http://catalogue.bnf.fr/namespaces/motsnotices" xmlns:sd="http://www.loc.gov/zing/srw/diagnostic/">
+<srw:version>1.2</srw:version>
+<srw:echoedSearchRetrieveRequest>
+<srw:version>1.2</srw:version>
+<srw:query>(bib.digitized all "freeAccess") and (bib.language all "chi")</srw:query>
+</srw:echoedSearchRetrieveRequest>
+<srw:numberOfRecords>1011</srw:numberOfRecords>
+<srw:records>
+<srw:record>
+<srw:recordSchema>marcxchange</srw:recordSchema>
+<srw:recordPacking>xml</srw:recordPacking>
+<srw:recordData>
+<mxc:record xmlns:mxc="info:lc/xmlns/marcxchange-v2" format="UNIMARC" id="ark:/12148/cb30700496j" type="Bibliographic">
+<mxc:leader>     nam  22     3  450 </mxc:leader>
+<mxc:controlfield tag="001">FRBNF307004960000005</mxc:controlfield>
+<mxc:controlfield tag="003">http://catalogue.bnf.fr/ark:/12148/cb30700496j</mxc:controlfield>
+<mxc:datafield tag="039" ind1=" " ind2=" ">
+<mxc:subfield code="o">CRI</mxc:subfield>
+<mxc:subfield code="a">CG008400050101P</mxc:subfield>
+</mxc:datafield>
+<mxc:datafield tag="039" ind1=" " ind2=" ">
+<mxc:subfield code="o">OPP</mxc:subfield>
+<mxc:subfield code="a">30808659</mxc:subfield>
+<mxc:subfield code="d">20240215</mxc:subfield>
+</mxc:datafield>
+<mxc:datafield tag="100" ind1=" " ind2=" ">
+<mxc:subfield code="a">19970701d1829    m  y1frey50      zz</mxc:subfield>
+</mxc:datafield>
+<mxc:datafield tag="101" ind1="|" ind2=" ">
+<mxc:subfield code="a">chi</mxc:subfield>
+<mxc:subfield code="i">fre</mxc:subfield>
+</mxc:datafield>
+<mxc:datafield tag="102" ind1=" " ind2=" ">
+<mxc:subfield code="a">FR</mxc:subfield>
+</mxc:datafield>
+<mxc:datafield tag="105" ind1=" " ind2=" ">
+<mxc:subfield code="a">||||z   00|||</mxc:subfield>
+</mxc:datafield>
+<mxc:datafield tag="106" ind1=" " ind2=" ">
+<mxc:subfield code="a">r</mxc:subfield>
+</mxc:datafield>
+<mxc:datafield tag="181" ind1=" " ind2="0">
+<mxc:subfield code="6">01</mxc:subfield>
+<mxc:subfield code="a">i </mxc:subfield>
+<mxc:subfield code="b">xxxe  </mxc:subfield>
+</mxc:datafield>
+<mxc:datafield tag="181" ind1=" " ind2=" ">
+<mxc:subfield code="6">02</mxc:subfield>
+<mxc:subfield code="c">txt</mxc:subfield>
+<mxc:subfield code="2">rdacontent</mxc:subfield>
+</mxc:datafield>
+<mxc:datafield tag="182" ind1=" " ind2="0">
+<mxc:subfield code="6">01</mxc:subfield>
+<mxc:subfield code="a">n</mxc:subfield>
+</mxc:datafield>
+<mxc:datafield tag="182" ind1=" " ind2=" ">
+<mxc:subfield code="6">02</mxc:subfield>
+<mxc:subfield code="c">n</mxc:subfield>
+<mxc:subfield code="2">rdamedia</mxc:subfield>
+</mxc:datafield>
+<mxc:datafield tag="200" ind1="1" ind2=" ">
+<mxc:subfield code="a">@ Tableau des éléments vocaux de l'écriture chinoise ... par J.-C.-V. Levasseur et H. Kurz,...</mxc:subfield>
+<mxc:subfield code="b">Texte imprimé</mxc:subfield>
+</mxc:datafield>
+<mxc:datafield tag="210" ind1=" " ind2=" ">
+<mxc:subfield code="a">Paris</mxc:subfield>
+<mxc:subfield code="c">V. Ratier</mxc:subfield>
+<mxc:subfield code="d">1829</mxc:subfield>
+</mxc:datafield>
+<mxc:datafield tag="215" ind1=" " ind2=" ">
+<mxc:subfield code="a">4-[1-1 l.]-32-[1] p.</mxc:subfield>
+<mxc:subfield code="d">in-8</mxc:subfield>
+</mxc:datafield>
+<mxc:datafield tag="686" ind1=" " ind2=" ">
+<mxc:subfield code="a">490</mxc:subfield>
+<mxc:subfield code="2">Cadre de classement de la Bibliographie nationale française</mxc:subfield>
+</mxc:datafield>
+<mxc:datafield tag="700" ind1=" " ind2="|">
+<mxc:subfield code="3">10442546</mxc:subfield>
+<mxc:subfield code="a">Levasseur</mxc:subfield>
+<mxc:subfield code="b">J C V</mxc:subfield>
+<mxc:subfield code="4">070</mxc:subfield>
+</mxc:datafield>
+<mxc:datafield tag="701" ind1=" " ind2="|">
+<mxc:subfield code="3">10219107</mxc:subfield>
+<mxc:subfield code="a">Kurz</mxc:subfield>
+<mxc:subfield code="b">Henri</mxc:subfield>
+<mxc:subfield code="4">070</mxc:subfield>
+</mxc:datafield>
+<mxc:datafield tag="801" ind1=" " ind2="0">
+<mxc:subfield code="a">FR</mxc:subfield>
+<mxc:subfield code="b">FR-751131015</mxc:subfield>
+<mxc:subfield code="c">19970701</mxc:subfield>
+<mxc:subfield code="g">AFNOR</mxc:subfield>
+<mxc:subfield code="h">FRBNF307004960000005</mxc:subfield>
+<mxc:subfield code="2">intermrc</mxc:subfield>
+</mxc:datafield>
+<mxc:datafield tag="856" ind1="4" ind2=" ">
+<mxc:subfield code="u">http://gallica.bnf.fr/ark:/12148/bpt6k1327735</mxc:subfield>
+</mxc:datafield>
+<mxc:datafield tag="930" ind1=" " ind2=" ">
+<mxc:subfield code="5">FR-751131010:30700496001001</mxc:subfield>
+<mxc:subfield code="a">X-16609</mxc:subfield>
+<mxc:subfield code="b">759999999</mxc:subfield>
+<mxc:subfield code="c">Tolbiac - Rez de Jardin - Littérature et art - Magasin</mxc:subfield>
+<mxc:subfield code="d">O</mxc:subfield>
+</mxc:datafield>
+<mxc:datafield tag="930" ind1=" " ind2=" ">
+<mxc:subfield code="5">FR-759999999:30700496002001</mxc:subfield>
+<mxc:subfield code="a">NUMM-132773</mxc:subfield>
+<mxc:subfield code="b">759999999</mxc:subfield>
+<mxc:subfield code="c">Document numérisé</mxc:subfield>
+<mxc:subfield code="d">N</mxc:subfield>
+</mxc:datafield>
+</mxc:record>      </srw:recordData>
+<srw:recordIdentifier>ark:/12148/cb30700496j</srw:recordIdentifier>
+<srw:recordPosition>1</srw:recordPosition>
+<srw:extraRecordData>
+<ixm:attr name="CreationDate">19970701</ixm:attr>
+<ixm:attr name="LastModificationDate">20240215</ixm:attr>
+<mn:score>3.30202</mn:score>
+</srw:extraRecordData>
+</srw:record>
+<srw:record>
+<srw:recordSchema>marcxchange</srw:recordSchema>
+<srw:recordPacking>xml</srw:recordPacking>
+<srw:recordData>
+<mxc:record xmlns:mxc="info:lc/xmlns/marcxchange-v2" format="UNIMARC" id="ark:/12148/cb46936351n" type="Bibliographic">
+<mxc:leader>     a    22        450 </mxc:leader>
+<mxc:controlfield tag="001">FRBNF469363510000003</mxc:controlfield>
+<mxc:controlfield tag="003">http://catalogue.bnf.fr/ark:/12148/cb46936351n</mxc:controlfield>
+<mxc:datafield tag="100" ind1=" " ind2=" ">
+<mxc:subfield code="a">20211223f1753       y0frey50      ea</mxc:subfield>
+</mxc:datafield>
+<mxc:datafield tag="101" ind1="0" ind2=" ">
+<mxc:subfield code="a">chi</mxc:subfield>
+</mxc:datafield>
+<mxc:datafield tag="102" ind1=" " ind2=" ">
+<mxc:subfield code="a">CN</mxc:subfield>
+</mxc:datafield>
+<mxc:datafield tag="121" ind1=" " ind2=" ">
+<mxc:subfield code="b">||||||||</mxc:subfield>
+</mxc:datafield>
+<mxc:datafield tag="121" ind1=" " ind2=" ">
+<mxc:subfield code="a">|||aaa|||</mxc:subfield>
+</mxc:datafield>
+<mxc:datafield tag="181" ind1=" " ind2="0">
+<mxc:subfield code="6">01</mxc:subfield>
+<mxc:subfield code="a">b </mxc:subfield>
+<mxc:subfield code="b">cb2e  </mxc:subfield>
+</mxc:datafield>
+<mxc:datafield tag="181" ind1=" " ind2=" ">
+<mxc:subfield code="6">02</mxc:subfield>
+<mxc:subfield code="c">cri</mxc:subfield>
+<mxc:subfield code="2">rdacontent</mxc:subfield>
+</mxc:datafield>
+<mxc:datafield tag="182" ind1=" " ind2="0">
+<mxc:subfield code="6">01</mxc:subfield>
+<mxc:subfield code="a">n</mxc:subfield>
+</mxc:datafield>
+<mxc:datafield tag="182" ind1=" " ind2=" ">
+<mxc:subfield code="6">02</mxc:subfield>
+<mxc:subfield code="c">n</mxc:subfield>
+<mxc:subfield code="2">rdamedia</mxc:subfield>
+</mxc:datafield>
+<mxc:datafield tag="200" ind1="1" ind2=" ">
+<mxc:subfield code="a">[Yongnian xian yi cang tu]</mxc:subfield>
+<mxc:subfield code="f">[Fang Guancheng]</mxc:subfield>
+</mxc:datafield>
+<mxc:datafield tag="200" ind1="1" ind2=" ">
+<mxc:subfield code="a">[永年縣義倉圖]</mxc:subfield>
+<mxc:subfield code="f">[方觀承]</mxc:subfield>
+</mxc:datafield>
+<mxc:datafield tag="200" ind1="1" ind2=" ">
+<mxc:subfield code="a">Carte de la sous-préfecture de Yong-Mien du département préfectoral de Kouang-ping-fou, province de Tchi-li (Chine)</mxc:subfield>
+</mxc:datafield>
+<mxc:datafield tag="206" ind1="0" ind2=" ">
+<mxc:subfield code="b">[Echelle indéterminée]</mxc:subfield>
+</mxc:datafield>
+<mxc:datafield tag="214" ind1=" " ind2="1">
+<mxc:subfield code="a">[S.l.]</mxc:subfield>
+<mxc:subfield code="d">[Qianlong shi ba nian] [ca 1753]</mxc:subfield>
+</mxc:datafield>
+<mxc:datafield tag="214" ind1=" " ind2="1">
+<mxc:subfield code="a">[S.l.]</mxc:subfield>
+<mxc:subfield code="d">[乾隆十八年] [ca 1753]</mxc:subfield>
+</mxc:datafield>
+<mxc:datafield tag="215" ind1=" " ind2=" ">
+<mxc:subfield code="a">1 feuille</mxc:subfield>
+<mxc:subfield code="d">29 x 29 cm (carte / texte ) sur 35 x 69 cm (carton)</mxc:subfield>
+</mxc:datafield>
+<mxc:datafield tag="215" ind1=" " ind2=" ">
+<mxc:subfield code="e">pl. avec dragon (35 x 69 cm)</mxc:subfield>
+</mxc:datafield>
+<mxc:datafield tag="300" ind1=" " ind2=" ">
+<mxc:subfield code="a">La carte semble correspondre à l'une des cartes de l'ouvrage "Ji fu yi cang tu (畿輔義倉圖)", présenté à l'empereur Qianlong (乾隆) en 1753 ; ce dernier résultait des enquêtes détaillées menées par Fang Guancheng (方觀承), alors gouverneur général du Zhili (直隸), sur les greniers de bienfaisance "yi cang (義倉)" présents dans les préfectures, sous-préfectures et districts de la région du "Jifu (畿輔)", aux environs de la capitale</mxc:subfield>
+</mxc:datafield>
+<mxc:datafield tag="307" ind1=" " ind2=" ">
+<mxc:subfield code="a">Carte manuscrite en couleurs (rouge, rose saumon, bleu, vert, jaune) et texte en vis-à-vis, bordés de soie damassée jaune et contrecollés sur un carton (plié en deux) ; conservé dans une enveloppe contenant également un autre carton orné d'un motif polychrome de dragon d'or parmi les nuages)</mxc:subfield>
+</mxc:datafield>
+<mxc:datafield tag="312" ind1=" " ind2=" ">
+<mxc:subfield code="a">Traduction française du titre : [Carte des greniers de bienfaisance du district de Yongnian]</mxc:subfield>
+</mxc:datafield>
+<mxc:datafield tag="312" ind1=" " ind2=" ">
+<mxc:subfield code="a">Traduction anglaise du titre : [Map of the charity granaries of Yongnian county]</mxc:subfield>
+</mxc:datafield>
+<mxc:datafield tag="313" ind1=" " ind2=" ">
+<mxc:subfield code="a">La carte présente principalement la répartition des greniers de bienfaisance "yi cang (義倉)" du district "Yongnian (永年)", dans la préfecture de Guangping (廣平府) de la province du Zhili (直隸) (aujourd'hui Handan (邯鄲) dans la province du Hebei (河北)) ; elle figure également les principaux reliefs et cours d'eau, ainsi que le siège de l'administration</mxc:subfield>
+</mxc:datafield>
+<mxc:datafield tag="313" ind1=" " ind2=" ">
+<mxc:subfield code="a">Les greniers sont représentés par de petits maisons, soulignées en bleu ; les limites des ressorts des greniers sont  tracées en rouge ; selon les informations dans le texte à gauche de la carte, un grenier était établi tous les 20 li (unité de mesure chinoise), soit un total de 11 greniers</mxc:subfield>
+</mxc:datafield>
+<mxc:datafield tag="313" ind1=" " ind2=" ">
+<mxc:subfield code="a">La limite du district est tracée en bleu ; le siège du district est figuré par une enceinte carrée crénelée, percée de portes et rehaussée de bleu ; les routes reliant le siège aux autres localités sont indiquées par les lignes jaunes très fines ; à droite, les montagnes sont figurées en forme de taupinières ; les cours d'eau sont représentés en rose saumon et en vert, et des ponts sont parfois figurés sur les rivières</mxc:subfield>
+</mxc:datafield>
+<mxc:datafield tag="313" ind1=" " ind2=" ">
+<mxc:subfield code="a">La carte est quadrillée : d'après l'information dans l'ouvrage "Ji fu yi cang tu (畿輔義倉圖)", chaque carré correspond à 5 li</mxc:subfield>
+</mxc:datafield>
+<mxc:datafield tag="313" ind1=" " ind2=" ">
+<mxc:subfield code="a">L'orientation est inversée : le haut de la carte représente le sud, indiqué par un caractère "nan (南)" en bordure</mxc:subfield>
+</mxc:datafield>
+<mxc:datafield tag="313" ind1=" " ind2=" ">
+<mxc:subfield code="a">Le texte explicatif à gauche détaille les distances de "Yongnian (永年縣)" aux districts limitrophes et la répartition des greniers de bienfaisance "yi cang (義倉)" dans l'ensemble du district, qui compte 199 villages</mxc:subfield>
+</mxc:datafield>
+<mxc:datafield tag="316" ind1=" " ind2=" ">
+<mxc:subfield code="5">FR-759999999:46936351001001</mxc:subfield>
+</mxc:datafield>
+<mxc:datafield tag="500" ind1="1" ind2="1">
+<mxc:subfield code="a">[永年县义仓图]</mxc:subfield>
+<mxc:subfield code="n">1753</mxc:subfield>
+</mxc:datafield>
+<mxc:datafield tag="517" ind1="1" ind2=" ">
+<mxc:subfield code="a">[Carte des greniers de bienfaisance du district de Yongnian]</mxc:subfield>
+</mxc:datafield>
+<mxc:datafield tag="517" ind1="1" ind2=" ">
+<mxc:subfield code="a">[Map of the charity granaries of Yongnian county]</mxc:subfield>
+</mxc:datafield>
+<mxc:datafield tag="518" ind1="1" ind2=" ">
+<mxc:subfield code="a">[永年县义仓图]</mxc:subfield>
+</mxc:datafield>
+<mxc:datafield tag="607" ind1=" " ind2=" ">
+<mxc:subfield code="3">17120716</mxc:subfield>
+<mxc:subfield code="a">Zhili (Chine)</mxc:subfield>
+<mxc:subfield code="2">AFNOR NF Z 44-081</mxc:subfield>
+</mxc:datafield>
+<mxc:datafield tag="660" ind1=" " ind2=" ">
+<mxc:subfield code="a">a-cc</mxc:subfield>
+</mxc:datafield>
+<mxc:datafield tag="686" ind1=" " ind2=" ">
+<mxc:subfield code="a">000</mxc:subfield>
+<mxc:subfield code="2">Cadre de classement de la Bibliographie nationale française</mxc:subfield>
+</mxc:datafield>
+<mxc:datafield tag="702" ind1=" " ind2="|">
+<mxc:subfield code="3">14891087</mxc:subfield>
+<mxc:subfield code="a">Fang</mxc:subfield>
+<mxc:subfield code="b">Guancheng</mxc:subfield>
+<mxc:subfield code="f">1698-1768</mxc:subfield>
+<mxc:subfield code="4">180</mxc:subfield>
+</mxc:datafield>
+<mxc:datafield tag="801" ind1=" " ind2="0">
+<mxc:subfield code="a">FR</mxc:subfield>
+<mxc:subfield code="b">FR-751131015</mxc:subfield>
+<mxc:subfield code="c">20211223</mxc:subfield>
+<mxc:subfield code="g">AFNOR</mxc:subfield>
+<mxc:subfield code="h">FRBNF469363510000003</mxc:subfield>
+<mxc:subfield code="2">intermrc</mxc:subfield>
+</mxc:datafield>
+<mxc:datafield tag="801" ind1=" " ind2="0">
+<mxc:subfield code="a">FR</mxc:subfield>
+<mxc:subfield code="b">FR-751131015</mxc:subfield>
+</mxc:datafield>
+<mxc:datafield tag="856" ind1="4" ind2=" ">
+<mxc:subfield code="u">http://gallica.bnf.fr/ark:/12148/btv1b108540447</mxc:subfield>
+</mxc:datafield>
+<mxc:datafield tag="930" ind1=" " ind2=" ">
+<mxc:subfield code="5">FR-759999999:46936351001001</mxc:subfield>
+<mxc:subfield code="a">FOL-SG NC-213 (RES)</mxc:subfield>
+<mxc:subfield code="b">759999999</mxc:subfield>
+<mxc:subfield code="c">Tolbiac - Rez de Jardin - Société de Géographie - Magasin</mxc:subfield>
+<mxc:subfield code="d">N</mxc:subfield>
+</mxc:datafield>
+<mxc:datafield tag="930" ind1=" " ind2=" ">
+<mxc:subfield code="5">FR-759999999:46936351002001</mxc:subfield>
+<mxc:subfield code="a">IFN-10854044</mxc:subfield>
+<mxc:subfield code="b">759999999</mxc:subfield>
+<mxc:subfield code="c">Document numérisé</mxc:subfield>
+<mxc:subfield code="d">N</mxc:subfield>
+</mxc:datafield>
+</mxc:record>      </srw:recordData>
+<srw:recordIdentifier>ark:/12148/cb46936351n</srw:recordIdentifier>
+<srw:recordPosition>2</srw:recordPosition>
+<srw:extraRecordData>
+<ixm:attr name="CreationDate">20211223</ixm:attr>
+<ixm:attr name="LastModificationDate">20260630</ixm:attr>
+<mn:score>3.295097</mn:score>
+</srw:extraRecordData>
+</srw:record>
+<srw:record>
+<srw:recordSchema>marcxchange</srw:recordSchema>
+<srw:recordPacking>xml</srw:recordPacking>
+<srw:recordData>
+<mxc:record xmlns:mxc="info:lc/xmlns/marcxchange-v2" format="UNIMARC" id="ark:/12148/cb446193697" type="Bibliographic">
+<mxc:leader>     a    22        450 </mxc:leader>
+<mxc:controlfield tag="001">FRBNF446193690000002</mxc:controlfield>
+<mxc:controlfield tag="003">http://catalogue.bnf.fr/ark:/12148/cb446193697</mxc:controlfield>
+<mxc:datafield tag="039" ind1=" " ind2=" ">
+<mxc:subfield code="o">MSS</mxc:subfield>
+<mxc:subfield code="a">CHIbpt6k1020290t 151</mxc:subfield>
+</mxc:datafield>
+<mxc:datafield tag="039" ind1=" " ind2=" ">
+<mxc:subfield code="o">OPP</mxc:subfield>
+<mxc:subfield code="a">44592573</mxc:subfield>
+<mxc:subfield code="d">20221005</mxc:subfield>
+</mxc:datafield>
+<mxc:datafield tag="039" ind1=" " ind2=" ">
+<mxc:subfield code="o">MSS</mxc:subfield>
+<mxc:subfield code="a">CHIbpt6k1020055p 108</mxc:subfield>
+</mxc:datafield>
+<mxc:datafield tag="100" ind1=" " ind2=" ">
+<mxc:subfield code="a">20180115d1931    m  y0frey50      ea</mxc:subfield>
+</mxc:datafield>
+<mxc:datafield tag="101" ind1="0" ind2=" ">
+<mxc:subfield code="a">chi</mxc:subfield>
+</mxc:datafield>
+<mxc:datafield tag="102" ind1=" " ind2=" ">
+<mxc:subfield code="a">CN</mxc:subfield>
+</mxc:datafield>
+<mxc:datafield tag="105" ind1=" " ind2=" ">
+<mxc:subfield code="a">||||z   00|||</mxc:subfield>
+</mxc:datafield>
+<mxc:datafield tag="106" ind1=" " ind2=" ">
+<mxc:subfield code="a">r</mxc:subfield>
+</mxc:datafield>
+<mxc:datafield tag="181" ind1=" " ind2="0">
+<mxc:subfield code="6">01</mxc:subfield>
+<mxc:subfield code="a">i </mxc:subfield>
+<mxc:subfield code="b">xxxe  </mxc:subfield>
+</mxc:datafield>
+<mxc:datafield tag="181" ind1=" " ind2=" ">
+<mxc:subfield code="6">02</mxc:subfield>
+<mxc:subfield code="c">txt</mxc:subfield>
+<mxc:subfield code="2">rdacontent</mxc:subfield>
+</mxc:datafield>
+<mxc:datafield tag="182" ind1=" " ind2="0">
+<mxc:subfield code="6">01</mxc:subfield>
+<mxc:subfield code="a">n</mxc:subfield>
+</mxc:datafield>
+<mxc:datafield tag="182" ind1=" " ind2=" ">
+<mxc:subfield code="6">02</mxc:subfield>
+<mxc:subfield code="c">n</mxc:subfield>
+<mxc:subfield code="2">rdamedia</mxc:subfield>
+</mxc:datafield>
+<mxc:datafield tag="200" ind1="1" ind2=" ">
+<mxc:subfield code="a">Yuan ye</mxc:subfield>
+<mxc:subfield code="e">3 juan</mxc:subfield>
+<mxc:subfield code="f">(Ming) Ji Cheng yuan zhu</mxc:subfield>
+</mxc:datafield>
+<mxc:datafield tag="200" ind1="1" ind2=" ">
+<mxc:subfield code="a">園冶</mxc:subfield>
+<mxc:subfield code="e">3 卷</mxc:subfield>
+<mxc:subfield code="f">(明) 計成原著</mxc:subfield>
+</mxc:datafield>
+<mxc:datafield tag="200" ind1="1" ind2=" ">
+<mxc:subfield code="a">Yuan ye</mxc:subfield>
+<mxc:subfield code="e">3 kiuan</mxc:subfield>
+</mxc:datafield>
+<mxc:datafield tag="210" ind1=" " ind2=" ">
+<mxc:subfield code="a">Bei ping</mxc:subfield>
+<mxc:subfield code="c">Zhong guo ying zao xue she</mxc:subfield>
+<mxc:subfield code="d">Zhong hua min guo er shi nian (1931)</mxc:subfield>
+</mxc:datafield>
+<mxc:datafield tag="210" ind1=" " ind2=" ">
+<mxc:subfield code="a">北平</mxc:subfield>
+<mxc:subfield code="c">中國營造學社</mxc:subfield>
+<mxc:subfield code="d">中華民國二十年 (1931)</mxc:subfield>
+</mxc:datafield>
+<mxc:datafield tag="215" ind1=" " ind2=" ">
+<mxc:subfield code="a">1 fasc.</mxc:subfield>
+</mxc:datafield>
+<mxc:datafield tag="500" ind1="1" ind2="1">
+<mxc:subfield code="3">84889511</mxc:subfield>
+<mxc:subfield code="a">Yuan ye</mxc:subfield>
+<mxc:subfield code="m">chinois</mxc:subfield>
+</mxc:datafield>
+<mxc:datafield tag="686" ind1=" " ind2=" ">
+<mxc:subfield code="a">000</mxc:subfield>
+<mxc:subfield code="2">Cadre de classement de la Bibliographie nationale française</mxc:subfield>
+</mxc:datafield>
+<mxc:datafield tag="700" ind1=" " ind2="|">
+<mxc:subfield code="3">17173458</mxc:subfield>
+<mxc:subfield code="a">Ji</mxc:subfield>
+<mxc:subfield code="b">Cheng</mxc:subfield>
+<mxc:subfield code="4">070</mxc:subfield>
+</mxc:datafield>
+<mxc:datafield tag="801" ind1=" " ind2="0">
+<mxc:subfield code="a">FR</mxc:subfield>
+<mxc:subfield code="b">FR-751131015</mxc:subfield>
+<mxc:subfield code="c">20180115</mxc:subfield>
+<mxc:subfield code="g">AFNOR</mxc:subfield>
+<mxc:subfield code="h">FRBNF446193690000002</mxc:subfield>
+<mxc:subfield code="2">intermrc</mxc:subfield>
+</mxc:datafield>
+<mxc:datafield tag="801" ind1=" " ind2="0">
+<mxc:subfield code="a">FR</mxc:subfield>
+<mxc:subfield code="b">FR-751131015</mxc:subfield>
+</mxc:datafield>
+<mxc:datafield tag="856" ind1="4" ind2=" ">
+<mxc:subfield code="u">http://gallica.bnf.fr/ark:/12148/btv1b108769138</mxc:subfield>
+</mxc:datafield>
+<mxc:datafield tag="930" ind1=" " ind2=" ">
+<mxc:subfield code="5">FR-751021006:44619369002001</mxc:subfield>
+<mxc:subfield code="a">CHINOIS-12025</mxc:subfield>
+<mxc:subfield code="b">759999999</mxc:subfield>
+<mxc:subfield code="c">Richelieu - Manuscrits - Magasin</mxc:subfield>
+<mxc:subfield code="d">N</mxc:subfield>
+</mxc:datafield>
+<mxc:datafield tag="930" ind1=" " ind2=" ">
+<mxc:subfield code="5">FR-759999999:44619369004001</mxc:subfield>
+<mxc:subfield code="a">IFN-10876913</mxc:subfield>
+<mxc:subfield code="b">759999999</mxc:subfield>
+<mxc:subfield code="c">Document numérisé</mxc:subfield>
+<mxc:subfield code="d">N</mxc:subfield>
+</mxc:datafield>
+</mxc:record>      </srw:recordData>
+<srw:recordIdentifier>ark:/12148/cb446193697</srw:recordIdentifier>
+<srw:recordPosition>3</srw:recordPosition>
+<srw:extraRecordData>
+<ixm:attr name="CreationDate">20180115</ixm:attr>
+<ixm:attr name="LastModificationDate">20260708</ixm:attr>
+<mn:score>3.083482</mn:score>
+</srw:extraRecordData>
+</srw:record>
+</srw:records>
+<srw:nextRecordPosition>4</srw:nextRecordPosition>
+</srw:searchRetrieveResponse>

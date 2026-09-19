@@ -340,7 +340,7 @@ function bindAnnotation() {
     g.className = "ghost"; g.style.cssText = `left:${x * 100}%;top:${y * 100}%`;
     holder.appendChild(g);
   });
-  pagesEl.addEventListener("pointermove", (e) => {
+  addEventListener("pointermove", (e) => {
     if (!drawing) return;
     e.preventDefault();
     const [x, y] = pageRectNorm(e, drawing.holder);
@@ -350,7 +350,7 @@ function bindAnnotation() {
       `left:${Math.min(drawing.x0, x) * 100}%;top:${Math.min(drawing.y0, y) * 100}%;` +
       `width:${Math.abs(x - drawing.x0) * 100}%;height:${Math.abs(y - drawing.y0) * 100}%`;
   });
-  pagesEl.addEventListener("pointerup", async (e) => {
+  addEventListener("pointerup", async (e) => {
     if (!drawing) return;
     const d = drawing; drawing = null;
     d.holder.querySelector(".ghost")?.remove();

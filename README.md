@@ -350,4 +350,5 @@ manage.py 管理CLI    scheduler.py 调度守护    Dockerfile/compose/entrypoin
 （BnF ✅）。下一期 R4：划词区域 OCR（Tesseract）+ 查词跳转 + 跨书 FTS 检索 + 朗读
 （设计见 docs/READER-DESIGN.md）。四轮代码审查累计修复 19 项（并发竞态、崩溃恢复、
 PDF 规范合规、跨进程节流、移动端自适应等），关键路径均有离线回归测试。
-贡献前跑 `python3 -m py_compile core/*.py sites/*.py`。
+回归测试：`python3 tests/test_regressions.py`（9 组，全部离线）；
+贡献前另跑 `python3 -m py_compile core/*.py sites/*.py`。
