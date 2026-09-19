@@ -84,3 +84,15 @@ embed.pdf{width:100%;height:82vh;border:1px solid var(--line);border-radius:10px
 .fpill.on{background:rgba(122,162,247,.18);border-color:var(--acc);color:var(--acc);font-weight:600}
 .fpill.inv{border-style:dashed;color:var(--warn)}
 .fpill.clear{color:var(--red);border-color:rgba(247,118,142,.4)}
+
+/* 书架 */
+.hero-card{display:flex;gap:18px;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:18px;margin-bottom:22px;align-items:center}
+.hero-card img{width:96px;height:128px;object-fit:cover;border-radius:8px;border:1px solid var(--line)}
+.hero-t{font-size:16.5px;font-weight:650;margin-bottom:6px}
+.tabs{display:flex;gap:6px;margin-bottom:18px}
+.tabs a{padding:6px 16px;border-radius:18px;border:1px solid var(--line);background:var(--panel);color:var(--tx2);font-size:13.5px}
+.tabs a.on{border-color:var(--acc);color:var(--acc);font-weight:600}
+.card .cov{position:relative}
+.card .prog{position:absolute;bottom:6px;left:6px;background:rgba(0,0,0,.65);color:var(--acc2);font-size:11px;padding:1px 7px;border-radius:10px;font-variant-numeric:tabular-nums}
+.card .fav{position:absolute;top:6px;right:6px;font-size:13px}
+@media(max-width:720px){.hero-card{flex-direction:row}.hero-card img{width:72px;height:96px}}

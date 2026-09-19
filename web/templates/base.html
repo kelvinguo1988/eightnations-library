@@ -11,7 +11,8 @@
   <div class="nav-inner">
     <a class="brand" href="/">📚 八国联军图书馆</a>
     <div class="nav-links">
-      <a href="/" class="{{ 'on' if nav=='library' else '' }}">书库</a>
+      <a href="/" class="{{ 'on' if nav=='shelf' else '' }}">书架</a>
+      <a href="/explore" class="{{ 'on' if nav=='library' else '' }}">书城</a>
       <a href="/review" class="{{ 'on' if nav=='review' else '' }}">新书审核
         {% if counts.get('discovered') %}<span class="pill">{{ counts['discovered'] }}</span>{% endif %}</a>
       <a href="/jobs" class="{{ 'on' if nav=='jobs' else '' }}">任务</a>

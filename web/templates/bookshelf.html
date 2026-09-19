@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% block title %}书架 · 八国联军图书馆{% endblock %}
+{% block content %}
+<h2>书架</h2>
+<div class="sub">共 {{ total }} 册{{ {'reading':'在读','favorite':'收藏','done':'已归档'}[tab] }} · 阅读进度自动记忆</div>
+
+{% if hero %}
+<div class="hero-card">
+  {% if hero.cover %}<img src="{{ hero.cover }}" alt="">{% else %}<div class="cov card" style="width:96px;height:128px;display:flex;align-items:center;justify-content:center"><span style="font-size:34px;color:var(--tx3)">書</span></div>{% endif %}
+  <div class="hero-bd">
+    <div class="hero-t">{{ (hero.row['alt_title'] or hero.row['title'])|jp2t }}</div>
+    <div class="mut">{{ hero.row['era'] }}{{ hero.row['year_start'] or '' }} · 读到 {{ hero.rpage }}/{{ hero.row['page_count'] or '?' }} 页（{{ hero.pct }}%）</div>
+    <div class="bar" style="margin:10px 0;max-width:420px">
+      <i style="width:{{ hero.pct }}%;background:var(--acc2)"></i>
+    </div>
+    <a class="btn primary" href="/read/{{ hero.row['id'] }}">📖 继续阅读</a>
+    <a class="btn" href="/books/{{ hero.row['id'] }}">详情</a>
+  </div>
+</div>
+{% endif %}
+
+<div class="tabs">
+  <a href="/?tab=reading" class="{{ 'on' if tab=='reading' }}">在读</a>
+  <a href="/?tab=favorite" class="{{ 'on' if tab=='favorite' }}">收藏 ⭐</a>
+  <a href="/?tab=done" class="{{ 'on' if tab=='done' }}">已归档</a>
+</div>
+
+{% if cards %}
+<div class="grid">
+  {% for c in cards %}
+  <a class="card" href="{{ '/read/'+c.row['id']|string if c.rpage else '/books/'+c.row['id']|string }}">
+    <div class="cov">
+      {% if c.cover %}<img src="{{ c.cover }}" loading="lazy" alt="">
+      {% else %}<span class="ph">{{ (c.row['alt_title'] or c.row['title'] or '书')[:1]|jp2t }}</span>{% endif %}
+      {% if c.pct is not none %}<span class="prog">{{ c.pct }}%</span>{% endif %}
+      {% if c.row['favorite'] %}<span class="fav">⭐</span>{% endif %}
+    </div>
+    <div class="bd">
+      <div class="t" title="{{ c.row['alt_title'] or c.row['title'] }}">{{ (c.row['alt_title'] or c.row['title'])|jp2t }}</div>
+      <div class="m">
+        <span>{{ c.row['era'] }}{{ c.row['year_start'] or '' }}</span>
+        {% if c.rpage %}<span>读到 {{ c.rpage }} 页</span>{% endif %}
+        {% if c.row['page_count'] %}<span>{{ c.row['page_count'] }} 页</span>{% endif %}
+      </div>
+    </div>
+  </a>
+  {% endfor %}
+</div>
+{% else %}
+<div class="empty">
+  {% if tab=='reading' %}还没有阅读记录 —— 去<a href="/explore">书城</a>挑一本，或在详情页打开阅读器
+  {% elif tab=='favorite' %}还没有收藏 —— 详情页/书城卡片可加⭐
+  {% else %}书架还是空的 —— 去<a href="/explore">书城</a>批准下载一些书吧{% endif %}
+</div>
+{% endif %}
+{% endblock %}

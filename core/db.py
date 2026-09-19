@@ -70,6 +70,23 @@ CREATE TABLE IF NOT EXISTS jobs(
   started_at TEXT NOT NULL,
   finished_at TEXT DEFAULT ''
 );
+CREATE TABLE IF NOT EXISTS reading_progress(
+  book_id INTEGER PRIMARY KEY REFERENCES books(id),
+  page INTEGER DEFAULT 1, scroll_pct REAL DEFAULT 0, zoom REAL DEFAULT 1,
+  layout TEXT DEFAULT 'scroll', night INTEGER DEFAULT 0, updated_at TEXT
+);
+CREATE TABLE IF NOT EXISTS bookmarks(
+  id INTEGER PRIMARY KEY, book_id INTEGER NOT NULL REFERENCES books(id),
+  page INTEGER NOT NULL, note TEXT DEFAULT '', created_at TEXT,
+  UNIQUE(book_id, page)
+);
+CREATE TABLE IF NOT EXISTS annotations(
+  id INTEGER PRIMARY KEY, book_id INTEGER NOT NULL REFERENCES books(id),
+  page INTEGER NOT NULL, kind TEXT NOT NULL,
+  x0 REAL, y0 REAL, x1 REAL, y1 REAL,
+  color TEXT DEFAULT '#ffe066', text TEXT DEFAULT '', created_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_annotations_book ON annotations(book_id, page);
 CREATE TABLE IF NOT EXISTS events(
   id INTEGER PRIMARY KEY,
   ts TEXT NOT NULL,
@@ -123,6 +140,8 @@ class DB:
             bcols = {r["name"] for r in conn.execute("PRAGMA table_info(books)")}
             if "subjects" not in bcols:
                 conn.execute("ALTER TABLE books ADD COLUMN subjects TEXT DEFAULT '[]'")
+            if "favorite" not in bcols:
+                conn.execute("ALTER TABLE books ADD COLUMN favorite INTEGER DEFAULT 0")
             for row in _DEFAULT_SOURCES:
                 conn.execute(
                     "INSERT OR IGNORE INTO sources(id,name,country,flag,adapter,"
@@ -133,6 +152,51 @@ class DB:
                 "UPDATE sources SET catalog_url=? "
                 "WHERE id='na_jp' AND (catalog_url IS NULL OR catalog_url='')",
                 (_DEFAULT_SOURCES[1][9],))
+
+    def toggle_favorite(self, book_id: int) -> Optional[bool]:
+        with self._lock, self.connect() as conn:
+            row = conn.execute("SELECT favorite FROM books WHERE id=?",
+                               (book_id,)).fetchone()
+            if not row:
+                return None
+            val = 0 if row["favorite"] else 1
+            conn.execute("UPDATE books SET favorite=? WHERE id=?", (val, book_id))
+            return bool(val)
+
+    def get_progress(self, book_id: int) -> Optional[sqlite3.Row]:
+        with self.connect() as conn:
+            return conn.execute(
+                "SELECT * FROM reading_progress WHERE book_id=?",
+                (book_id,)).fetchone()
+
+    def save_progress(self, book_id: int, page: int, scroll_pct: float,
+                      zoom: float, layout: str, night: bool) -> None:
+        with self._lock, self.connect() as conn:
+            conn.execute(
+                "INSERT INTO reading_progress(book_id,page,scroll_pct,zoom,layout,"
+                "night,updated_at) VALUES(?,?,?,?,?,?,?) "
+                "ON CONFLICT(book_id) DO UPDATE SET page=excluded.page,"
+                "scroll_pct=excluded.scroll_pct,zoom=excluded.zoom,"
+                "layout=excluded.layout,night=excluded.night,"
+                "updated_at=excluded.updated_at",
+                (book_id, page, scroll_pct, zoom, layout, int(night), utcnow()))
+
+    def list_bookmarks(self, book_id: int) -> List[sqlite3.Row]:
+        with self.connect() as conn:
+            return conn.execute(
+                "SELECT * FROM bookmarks WHERE book_id=? ORDER BY page",
+                (book_id,)).fetchall()
+
+    def add_bookmark(self, book_id: int, page: int, note: str) -> None:
+        with self._lock, self.connect() as conn:
+            conn.execute(
+                "INSERT OR IGNORE INTO bookmarks(book_id,page,note,created_at) "
+                "VALUES(?,?,?,?)", (book_id, page, note, utcnow()))
+
+    def delete_bookmark(self, book_id: int, page: int) -> None:
+        with self._lock, self.connect() as conn:
+            conn.execute("DELETE FROM bookmarks WHERE book_id=? AND page=?",
+                         (book_id, page))
 
     def set_catalog_time(self, source_id: str) -> None:
         with self._lock, self.connect() as conn:

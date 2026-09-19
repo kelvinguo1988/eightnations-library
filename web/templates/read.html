@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>{{ title_disp }} · 阅读</title>
+<link rel="stylesheet" href="/static/pdfjs/pdf_viewer.min.css">
+<link rel="stylesheet" href="/static/reader.css">
+</head>
+<body>
+<div id="reader" class="{{ 'night' if prog.get('night') }}"
+     data-book="{{ b['id'] }}" data-pdf="{{ pdf_url }}"
+     data-total="{{ total_pages or 0 }}"
+     data-page="{{ prog.get('page', 1) }}"
+     data-scrollpct="{{ prog.get('scroll_pct', 0) }}"
+     data-zoom="{{ prog.get('zoom', 1) }}"
+     data-layout="{{ prog.get('layout', 'scroll') }}">
+  <header class="r-top">
+    <a class="r-back" href="/">‹</a>
+    <div class="r-title">{{ title_disp }}</div>
+    <div class="r-pos"><span id="cur-page">{{ prog.get('page', 1) }}</span>/<span id="total-page">{{ total_pages or '?' }}</span></div>
+    <button id="bm-btn" class="r-ic" title="收藏本页书签">⭐</button>
+    <button id="toc-btn" class="r-ic" title="书签列表">📖</button>
+    <button id="night-btn" class="r-ic" title="夜间模式">☀</button>
+  </header>
+  <div id="viewer">
+    <div id="pages"></div>
+  </div>
+  <footer class="r-bar">
+    <button class="r-ic" id="zoom-out">−</button>
+    <span id="zoom-val">100%</span>
+    <button class="r-ic" id="zoom-in">＋</button>
+    <span class="r-sep"></span>
+    <button class="r-ic" id="layout-btn" title="单页/连滚">⇔</button>
+    <input id="page-jump" type="number" min="1" value="{{ prog.get('page', 1) }}" title="跳页">
+    <span class="r-flex"></span>
+    <button class="r-ic" id="prev-btn">‹</button>
+    <button class="r-ic" id="next-btn">›</button>
+  </footer>
+  <div id="toc-drawer" class="drawer" hidden>
+    <h3>书签 <button id="toc-close" class="r-ic">✕</button></h3>
+    <ul id="bm-list">
+      {% for bm in bookmarks %}
+      <li data-page="{{ bm['page'] }}"><b>{{ bm['page'] }}</b> 页 {% if bm['note'] %}· {{ bm['note'] }}{% endif %} <button class="bm-del" data-page="{{ bm['page'] }}">✕</button></li>
+      {% else %}<li class="mut">暂无书签 —— 顶部 ⭐ 收藏当前页</li>{% endfor %}
+    </ul>
+  </div>
+  <div id="toast" hidden></div>
+</div>
+<script type="module" src="/static/reader.js"></script>
+</body>
+</html>

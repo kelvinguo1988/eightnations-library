@@ -133,8 +133,47 @@ templates.env.filters["col_label"] = _col_label
 templates.env.filters["jp2t"] = jp2t
 
 
-# ---------------------------------------------------------------- 书库
+# ---------------------------------------------------------------- 书架（首页）
 @app.get("/", response_class=HTMLResponse)
+def bookshelf(request: Request, tab: str = "reading"):
+    d = get_db()
+    if tab not in ("reading", "favorite", "done"):
+        tab = "reading"
+    cards, hero, total = [], None, 0
+    if tab == "reading":
+        with d.connect() as conn:
+            rows = conn.execute(
+                "SELECT b.*, r.page AS rpage, r.updated_at AS rat "
+                "FROM books b JOIN reading_progress r ON r.book_id=b.id "
+                "ORDER BY r.updated_at DESC LIMIT 60").fetchall()
+        total = len(rows)
+        for r in rows:
+            card = {"row": r, "rpage": r["rpage"],
+                    "pct": min(100, round((r["rpage"] or 1) * 100 /
+                                          max(r["page_count"] or 1, 1)))}
+            u = book_urls(r)
+            card["cover"] = u["cover"] if u["cover_exists"] else ""
+            cards.append(card)
+            if hero is None:
+                hero = card
+    elif tab == "favorite":
+        rows = d.list_books(status="done", keyword="", limit=200)
+        rows = [r for r in rows if r["favorite"]]
+        total = len(rows)
+    else:
+        rows = d.list_books(status="done", limit=200)
+        total = len(rows)
+    if tab != "reading":
+        for r in rows:
+            u = book_urls(r)
+            cards.append({"row": r, "rpage": None, "pct": None,
+                          "cover": u["cover"] if u["cover_exists"] else ""})
+    return templates.TemplateResponse(request, "bookshelf.html", common_ctx(
+        request, d, cards=cards, hero=hero, tab=tab, total=total))
+
+
+# ---------------------------------------------------------------- 书城（原书库）
+@app.get("/explore", response_class=HTMLResponse)
 def library(request: Request, q: str = "", source: str = "",
             collection: str = "", era: str = "", subjects: str = "",
             status: str = "done", page: int = 1):
@@ -195,6 +234,86 @@ def detail(book_id: int, request: Request):
         col_label=_col_label(row["collection"]),
         t_orig=t_orig, t_romaji=t_romaji,
         jobs=[dict(j) for j in jobs]))
+
+
+# ---------------------------------------------------------------- 阅读器
+@app.get("/read/{book_id}", response_class=HTMLResponse)
+def reader(book_id: int, request: Request, p: int = 0):
+    d = get_db()
+    row = d.get_book(book_id)
+    if not row:
+        return HTMLResponse("未找到该书", status_code=404)
+    u = book_urls(row)
+    if not u["pdfs"]:
+        return HTMLResponse("该书 PDF 尚未下载", status_code=404)
+    pdf_url = u["pdfs"][0]
+    total_pages = 0
+    meta_path = os.path.join(BOOKS_DIR, u["rel"], "meta.json")
+    if os.path.exists(meta_path):
+        try:
+            with open(meta_path, "r", encoding="utf-8") as f:
+                total_pages = int(json.load(f).get("pages") or 0)
+        except Exception:
+            total_pages = 0
+    prog = d.get_progress(book_id)
+    prog_d = dict(prog) if prog else {}
+    if p:                       # URL 指定页码优先（书签/检索跳转）
+        prog_d.update(page=p, scroll_pct=0)
+    bms = [dict(b) for b in d.list_bookmarks(book_id)]
+    return templates.TemplateResponse(request, "read.html", common_ctx(
+        request, d, b=row, pdf_url=pdf_url, total_pages=total_pages or None,
+        prog=prog_d, bookmarks=bms,
+        title_disp=jp2t(row["alt_title"] or row["title"])))
+
+
+@app.post("/api/progress/{book_id}")
+async def api_progress(book_id: int, request: Request):
+    d = get_db()
+    body = await request.json()
+    try:
+        page = max(1, int(body.get("page") or 1))
+        scroll_pct = min(max(float(body.get("scroll_pct") or 0), 0), 1)
+        zoom = min(max(float(body.get("zoom") or 1), 0.4), 3)
+    except (TypeError, ValueError):
+        return JSONResponse({"error": "参数不合法"}, status_code=400)
+    d.save_progress(book_id, page, scroll_pct, zoom,
+                    str(body.get("layout") or "scroll"),
+                    bool(body.get("night")))
+    return {"ok": True}
+
+
+@app.get("/api/bookmarks")
+def api_bookmarks(book_id: int):
+    d = get_db()
+    return [dict(b) for b in d.list_bookmarks(book_id)]
+
+
+@app.post("/api/bookmarks")
+async def api_bookmark_add(request: Request):
+    d = get_db()
+    body = await request.json()
+    try:
+        book_id, page = int(body["book_id"]), int(body["page"])
+    except (KeyError, TypeError, ValueError):
+        return JSONResponse({"error": "参数不合法"}, status_code=400)
+    if not d.get_book(book_id):
+        return JSONResponse({"error": "书不存在"}, status_code=404)
+    d.add_bookmark(book_id, page, str(body.get("note") or "")[:300])
+    return {"ok": True}
+
+
+@app.delete("/api/bookmarks/{book_id}/{page}")
+def api_bookmark_del(book_id: int, page: int):
+    get_db().delete_bookmark(book_id, page)
+    return {"ok": True}
+
+
+@app.post("/api/favorite/{book_id}")
+def api_favorite(book_id: int):
+    val = get_db().toggle_favorite(book_id)
+    if val is None:
+        return JSONResponse({"error": "书不存在"}, status_code=404)
+    return {"ok": True, "favorite": val}
 
 
 # ---------------------------------------------------------------- 新书审核
