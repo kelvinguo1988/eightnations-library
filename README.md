@@ -241,6 +241,10 @@ docker exec eightnations python3 manage.py doctor
 
 **⚠️ 真实案例：数据落在 Docker 匿名卷（2026-09-19）**
 
+> **根因**：用 Container Station「创建容器」向导建容器时，若不在"存储"步骤手动添加
+> 卷映射，镜像的 `VOLUME /data` 会让 Docker 自动分配匿名卷——每重建一次换一个新卷。
+> **正确姿势是用「应用程序」粘贴 compose 创建**（volumes 段自动生效），见下方迁移步骤第 4 步。
+
 若容器创建时**没有**显式挂载宿主机目录，镜像的 `VOLUME /data` 声明会让 Docker
 自动分配一个**匿名卷**，数据实际存放在：
 
@@ -263,7 +267,9 @@ docker cp eightnations:/data/. /share/Container/eightnations/data/
 # ③ 确认拷贝完整（应看到 books/ db/ 等）
 ls /share/Container/eightnations/data
 # ④ 用仓库 compose 重建容器（务必含 volumes 挂载段；Container Station
-#    里旧应用请先在界面删除，再用下方 compose 创建）
+#    里旧应用请先在界面删除，再用下方 compose 创建；
+#    也可用「创建容器」向导，但必须在"存储"步骤手动添加映射：
+#    主机路径 /share/Container/eightnations/data → 容器路径 /data）
 cd /share/Container/eightnations
 curl -O https://raw.githubusercontent.com/kelvinguo1988/eightnations-library/main/docker-compose.yml
 docker compose up -d
