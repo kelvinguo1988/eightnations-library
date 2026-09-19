@@ -257,7 +257,17 @@ docker exec eightnations python3 manage.py doctor
 **连数据一起删掉**。系统现已内置检测：设置页存储面板会显示当前挂载来源，
 若为匿名卷会**红色警告并给出迁移命令**；doctor 也会报此问题。
 
-**迁移到固定路径**（在 NAS SSH 中执行一次；先迁移、后删除，最安全）：
+**迁移到固定路径（推荐：一键脚本）**——自动发现旧卷、停止旧容器、拷贝、
+用固定路径重建、自检，全程一条命令：
+
+```bash
+curl -O https://raw.githubusercontent.com/kelvinguo1988/eightnations-library/main/migrate-nas.sh
+sh migrate-nas.sh
+# 可选自定义路径: sh migrate-nas.sh /share/其他路径
+```
+
+<details><summary>手动分步方式（点开）</summary>
+<p>（在 NAS SSH 中执行一次；先迁移、后删除，最安全）：
 
 ```bash
 # ① 建固定目录
@@ -276,6 +286,7 @@ docker compose up -d
 # ⑤ 校验：doctor 全绿 + 设置页存储面板显示"✅ 已绑定宿主机固定路径"
 docker exec eightnations python3 manage.py doctor
 ```
+</p></details>
 
 > 千万别在迁移前执行 `docker volume prune`、`docker compose down -v` 或在
 > Container Station 清理未使用的卷。
