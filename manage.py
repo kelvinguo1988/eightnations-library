@@ -31,6 +31,7 @@ DATA_DIR = os.environ.get("EIGHTNATIONS_DATA",
                           os.path.join(os.path.dirname(os.path.abspath(__file__)),
                                        "data"))
 DB_PATH = os.path.join(DATA_DIR, "db", "library.db")
+BOOKS_DIR = os.path.join(DATA_DIR, "books")
 
 
 def db() -> DB:
@@ -154,6 +155,92 @@ def cmd_import_na_jp(args) -> None:
     print(f"状态 {counts}")
     if stats["fetched"] or stats["blocked"]:
         print("下一步: python3 manage.py approve --source na_jp")
+
+
+def cmd_doctor(args) -> None:
+    """数据自检：库结构 / 完成书目与磁盘 PDF 对账 / 站点配置 / 节流目录。
+
+    容器重建后执行一次即可确认全部数据完好（退出码 0=健康 1=有问题）。
+    """
+    d = db()
+    issues, notes = [], []
+
+    # 1) 库结构与迁移列
+    with d.connect() as conn:
+        scols = {r[1] for r in conn.execute("PRAGMA table_info(sources)")}
+        bcols = {r[1] for r in conn.execute("PRAGMA table_info(books)")}
+    for c in ("catalog_url", "last_catalog_at"):
+        if c not in scols:
+            issues.append(f"sources 缺列 {c}")
+    for c in ("subjects",):
+        if c not in bcols:
+            issues.append(f"books 缺列 {c}")
+    print("✓ 库结构" if not issues else "✗ 库结构异常", DB_PATH)
+
+    # 2) done 书目 vs 磁盘 PDF 对账
+    rows = d.list_books(status="done", limit=100000)
+    n_ok = 0
+    missing = []
+    for r in rows:
+        leaf = os.path.join(BOOKS_DIR, r["source_id"],
+                            r["collection"] or "misc", r["source_uid"])
+        pdfs = []
+        if os.path.isdir(leaf):
+            pdfs = [f for f in os.listdir(leaf)
+                    if f.endswith(".pdf") and not f.endswith(".part")]
+        if pdfs:
+            n_ok += 1
+        else:
+            missing.append(f"{r['source_id']}/{r['collection']}/{r['source_uid']}")
+    print(f"✓ done {len(rows)} 册，磁盘有 PDF {n_ok} 册" if not missing
+          else f"✗ done {len(rows)} 册中 {len(missing)} 册磁盘无 PDF: {missing[:5]}")
+    if missing:
+        issues.append(f"{len(missing)} 册 done 无 PDF 文件")
+
+    # 3) 磁盘孤儿目录（有 PDF 目录但库里无记录/非 done）
+    orphans = []
+    if os.path.isdir(BOOKS_DIR):
+        for root, dirs, files in os.walk(BOOKS_DIR):
+            if any(f.endswith(".pdf") for f in files) and                     os.path.basename(os.path.dirname(root)) in ("misc",) or                     (any(f.endswith(".pdf") for f in files) and
+                     os.path.isfile(os.path.join(root, "meta.json"))):
+                uid = os.path.basename(root)
+                col = os.path.basename(os.path.dirname(root))
+                src = os.path.basename(os.path.dirname(os.path.dirname(root)))
+                row = d.find_book(src, uid)
+                if not row:
+                    orphans.append(f"{src}/{col}/{uid}")
+    if orphans:
+        notes.append(f"磁盘存在 {len(orphans)} 个无记录目录（可清理）: {orphans[:3]}")
+    else:
+        print("✓ 无孤儿目录")
+
+    # 4) 站点配置健康
+    with d.connect() as conn:
+        for r in conn.execute("SELECT * FROM sources"):
+            if r["enabled"] and r["meta_strategy"] == "direct" and not r["catalog_url"]:
+                issues.append(f"站点 {r['id']} 已启用但 direct 策略缺 catalog_url")
+    print("✓ 站点配置" if not any("catalog_url" in i for i in issues) else "✗ 站点配置缺目录 URL")
+
+    # 5) 节流锁目录可写
+    rt = os.path.join(DATA_DIR, "runtime", "throttle")
+    try:
+        os.makedirs(rt, exist_ok=True)
+        probe = os.path.join(rt, ".doctor")
+        with open(probe, "w") as f:
+            f.write("ok")
+        os.remove(probe)
+        print("✓ 节流锁目录可写", rt)
+    except OSError as e:
+        issues.append(f"节流锁目录不可写: {e}")
+
+    for n in notes:
+        print("ℹ", n)
+    if issues:
+        print(f"\n共 {len(issues)} 个问题:")
+        for i in issues:
+            print("  -", i)
+        sys.exit(1)
+    print("\n全部检查通过 ✅")
 
 
 def cmd_backfill_na_jp(args) -> None:
@@ -315,6 +402,8 @@ def main() -> None:
     p.set_defaults(func=cmd_import_na_jp)
 
     sub.add_parser("backfill-na-jp").set_defaults(func=cmd_backfill_na_jp)
+
+    sub.add_parser("doctor").set_defaults(func=cmd_doctor)
 
     p = sub.add_parser("enrich-na-jp")
     p.add_argument("--budget", type=int, default=30,

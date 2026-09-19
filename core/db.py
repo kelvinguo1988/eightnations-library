@@ -194,8 +194,10 @@ class DB:
 
     def list_books(self, status: str = "", source_id: str = "",
                    collection: str = "", keyword: str = "", era: str = "",
+                   subjects: str = "",
                    limit: int = 200, offset: int = 0) -> List[sqlite3.Row]:
-        where, args = self._book_filters(status, source_id, collection, keyword, era)
+        where, args = self._book_filters(status, source_id, collection, keyword,
+                                         era, subjects)
         sql = "SELECT * FROM books" + where + " ORDER BY id LIMIT ? OFFSET ?"
         args += [limit, offset]
         with self.connect() as conn:
@@ -204,7 +206,7 @@ class DB:
     @staticmethod
     def _book_filters(status: str = "", source_id: str = "",
                       collection: str = "", keyword: str = "",
-                      era: str = "") -> tuple:
+                      era: str = "", subjects: str = "") -> tuple:
         sql, args = " WHERE 1=1", []
         if status:
             sql += " AND status=?"
@@ -216,16 +218,27 @@ class DB:
             sql += " AND collection=?"
             args.append(collection)
         if era:
-            sql += " AND era=?"
-            args.append(era)
+            vals = [("" if e.strip().lower() in ("unknown", "未知") else e.strip())
+                    for e in str(era).split(",") if e.strip()]
+            if vals:
+                sql += f" AND era IN ({','.join('?' * len(vals))})"
+                args += vals
+        if subjects:
+            tags = [t.strip() for t in str(subjects).split(",") if t.strip()]
+            if tags:
+                cond = " OR ".join("subjects LIKE ?" for _ in tags)
+                sql += f" AND ({cond})"
+                args += [f'%"{t}"%' for t in tags]
         if keyword:
             sql += " AND (title LIKE ? OR alt_title LIKE ? OR shelf_id LIKE ? OR subjects LIKE ?)"
             args += [f"%{keyword}%"] * 4
         return sql, args
 
     def count_books(self, status: str = "", source_id: str = "",
-                    collection: str = "", keyword: str = "", era: str = "") -> int:
-        where, args = self._book_filters(status, source_id, collection, keyword, era)
+                    collection: str = "", keyword: str = "", era: str = "",
+                    subjects: str = "") -> int:
+        where, args = self._book_filters(status, source_id, collection, keyword,
+                                         era, subjects)
         with self.connect() as conn:
             row = conn.execute("SELECT COUNT(*) AS n FROM books" + where, args).fetchone()
             return row["n"]
@@ -240,8 +253,18 @@ class DB:
                                 " ORDER BY collection", args).fetchall()
             eras = conn.execute("SELECT DISTINCT era FROM books" + conds +
                                 " ORDER BY era", args).fetchall()
+            tags: Dict[str, int] = {}
+            for r in conn.execute("SELECT subjects FROM books" + conds, args):
+                try:
+                    for t in json.loads(r["subjects"] or "[]"):
+                        if t:
+                            tags[t] = tags.get(t, 0) + 1
+                except Exception:
+                    pass
         return {"collections": [c["collection"] for c in cols if c["collection"]],
-                "eras": [e["era"] for e in eras if e["era"]]}
+                "eras": [e["era"] for e in eras if e["era"]],
+                "tags": [t for t, _ in sorted(tags.items(),
+                                              key=lambda kv: -kv[1])]}
 
     def count_by_status(self, source_id: str = "") -> Dict[str, int]:
         sql = "SELECT status, COUNT(*) AS n FROM books"

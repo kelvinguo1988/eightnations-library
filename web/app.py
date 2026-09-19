@@ -8,6 +8,7 @@ import json
 import os
 import sys
 import threading
+import time
 from typing import List, Optional
 
 from fastapi import FastAPI, File, Form, Request, Response, UploadFile
@@ -21,6 +22,7 @@ from core.db import DB, utcnow                   # noqa: E402
 from core.importer import import_snapshot_files  # noqa: E402
 from core.pipeline import fetch_one              # noqa: E402
 from core.limiter import HourQuota               # noqa: E402
+from core.text import jp2t                       # noqa: E402
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DATA_DIR = os.environ.get("EIGHTNATIONS_DATA",
@@ -63,6 +65,19 @@ def book_urls(row) -> dict:
             "cover": cover, "cover_exists": cover_exists}
 
 
+_FACETS_CACHE: dict = {}
+
+
+def get_facets(d: DB, source: str) -> dict:
+    """分类/朝代/专藏候选，60s 进程内缓存（避免每次请求全表 JSON 解析）。"""
+    key = source or "__all__"
+    ts, val = _FACETS_CACHE.get(key, (0.0, None))
+    if val is None or time.time() - ts > 60:
+        val = d.facets(source)
+        _FACETS_CACHE[key] = (time.time(), val)
+    return val
+
+
 def common_ctx(request: Request, d: DB, **kw) -> dict:
     with d.connect() as conn:
         sources = [dict(r) for r in conn.execute(
@@ -71,6 +86,28 @@ def common_ctx(request: Request, d: DB, **kw) -> dict:
            "sources": sources}
     ctx.update(kw)
     return ctx
+
+
+# 专藏 slug → 中文显示标签（slug 同时是落盘路径段，不可改名）
+COLLECTION_LABELS = {
+    "yongle-da-dian": "永樂大典",
+    "chinese-rare-books": "中国善本",
+    "fonds-3611449": "漢籍（日本）",
+    "gallica-chinois": "中文文献（Gallica）",
+}
+
+
+def _col_label(v) -> str:
+    return COLLECTION_LABELS.get(v, v or "未分类")
+
+
+def _split_tags(tags):
+    """分类标签按文字体系分组：CJK（日本分类）全显在前，拉丁（LoC 主题词）
+    仅展示 top 20（其余用关键字搜），避免筛选区被撑爆。"""
+    cjk, en = [], []
+    for t in tags or []:
+        (cjk if any('\u3400' <= ch <= '\u9fff' for ch in t) else en).append(t)
+    return cjk, en[:20]
 
 
 def _bytes_h(n: int) -> str:
@@ -92,31 +129,35 @@ def _has_pdf(v) -> bool:
 
 
 templates.env.filters["has_pdf"] = _has_pdf
+templates.env.filters["col_label"] = _col_label
+templates.env.filters["jp2t"] = jp2t
 
 
 # ---------------------------------------------------------------- 书库
 @app.get("/", response_class=HTMLResponse)
 def library(request: Request, q: str = "", source: str = "",
-            collection: str = "", era: str = "", status: str = "done",
-            page: int = 1):
+            collection: str = "", era: str = "", subjects: str = "",
+            status: str = "done", page: int = 1):
     d = get_db()
     per = 24
     rows = d.list_books(status=status, source_id=source, collection=collection,
-                        keyword=q, era=era, limit=per,
+                        keyword=q, era=era, subjects=subjects, limit=per,
                         offset=(max(page, 1) - 1) * per)
     total = d.count_books(status=status, source_id=source, collection=collection,
-                          keyword=q, era=era)
+                          keyword=q, era=era, subjects=subjects)
     cards = []
     for r in rows:
         u = book_urls(r)
         cards.append({"row": r, "cover": u["cover"] if u["cover_exists"] else "",
                       "has_pdf": bool(u["pdf"])})
-    facets = d.facets(source)
+    facets = get_facets(d, source)
+    cjk_tags, en_tags = _split_tags(facets["tags"])
     pages = max(1, (total + per - 1) // per)
     return templates.TemplateResponse(request, "library.html", common_ctx(
         request, d, cards=cards, total=total, page=page, pages=pages,
-        q=q, f_source=source, f_collection=collection, f_era=era, f_status=status,
-        facets=facets))
+        q=q, f_source=source, f_collection=collection, f_era=era,
+        f_subjects=subjects, f_status=status, facets=facets,
+        cjk_tags=cjk_tags, en_tags=en_tags))
 
 
 # ---------------------------------------------------------------- 详情
@@ -140,28 +181,43 @@ def detail(book_id: int, request: Request):
         subjects = json.loads(row["subjects"] or "[]")
     except Exception:
         subjects = []
+    # 题名两行按内容自适应：CJK 在 title（如日本馆）则作为原题；
+    # 罗马字行仅在 title 为拉丁转写时显示
+    has_cjk = any('\u3400' <= ch <= '\u9fff' for ch in (row["title"] or ""))
+    if row["alt_title"]:
+        t_orig, t_romaji = row["alt_title"], row["title"]
+    elif has_cjk:
+        t_orig, t_romaji = row["title"], ""
+    else:
+        t_orig, t_romaji = "", row["title"]
     return templates.TemplateResponse(request, "detail.html", common_ctx(
         request, d, b=row, urls=u, meta=meta, subjects=subjects,
+        col_label=_col_label(row["collection"]),
+        t_orig=t_orig, t_romaji=t_romaji,
         jobs=[dict(j) for j in jobs]))
 
 
 # ---------------------------------------------------------------- 新书审核
 @app.get("/review", response_class=HTMLResponse)
 def review(request: Request, q: str = "", source: str = "",
-           collection: str = "", era: str = "", page: int = 1):
+           collection: str = "", era: str = "", subjects: str = "",
+           page: int = 1):
     d = get_db()
     per = 40
     rows = d.list_books(status="discovered", source_id=source,
-                        collection=collection, keyword=q, era=era, limit=per,
+                        collection=collection, keyword=q, era=era,
+                        subjects=subjects, limit=per,
                         offset=(max(page, 1) - 1) * per)
     total = d.count_books(status="discovered", source_id=source,
-                          collection=collection, keyword=q, era=era)
-    facets = d.facets(source)
+                          collection=collection, keyword=q, era=era,
+                          subjects=subjects)
+    facets = get_facets(d, source)
+    cjk_tags, en_tags = _split_tags(facets["tags"])
     pages = max(1, (total + per - 1) // per)
     return templates.TemplateResponse(request, "review.html", common_ctx(
         request, d, rows=rows, total=total, q=q, f_source=source,
-        f_collection=collection, f_era=era, facets=facets,
-        page=page, pages=pages))
+        f_collection=collection, f_era=era, f_subjects=subjects, facets=facets,
+        cjk_tags=cjk_tags, en_tags=en_tags, page=page, pages=pages))
 
 
 @app.post("/api/review")
