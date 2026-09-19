@@ -3,7 +3,7 @@
 {% block content %}
 <h2>书城</h2>
 <div class="sub">共 {{ total }} 册符合条件 · 已归档 {{ counts.get('done',0) }} 册</div>
-<form class="filters" method="get" action="/">
+<form class="filters" method="get" action="/explore">
   <input type="text" name="q" value="{{ q }}" placeholder="书名 / 架藏号 / 主题 关键字">
   <input type="hidden" name="era" value="{{ f_era }}">
   <input type="hidden" name="subjects" value="{{ f_subjects }}">
@@ -70,9 +70,9 @@
 
 {% if pages > 1 %}
 <div class="pager">
-  {% if page > 1 %}<a href="/?q={{ q }}&source={{ f_source }}&collection={{ f_collection }}&era={{ f_era }}&subjects={{ f_subjects }}&status={{ f_status }}&page={{ page-1 }}">‹ 上一页</a>{% endif %}
+  {% if page > 1 %}<a href="/explore?q={{ q }}&source={{ f_source }}&collection={{ f_collection }}&era={{ f_era }}&subjects={{ f_subjects }}&status={{ f_status }}&page={{ page-1 }}">‹ 上一页</a>{% endif %}
   <span class="cur">{{ page }} / {{ pages }}</span>
-  {% if page < pages %}<a href="/?q={{ q }}&source={{ f_source }}&collection={{ f_collection }}&era={{ f_era }}&subjects={{ f_subjects }}&status={{ f_status }}&page={{ page+1 }}">下一页 ›</a>{% endif %}
+  {% if page < pages %}<a href="/explore?q={{ q }}&source={{ f_source }}&collection={{ f_collection }}&era={{ f_era }}&subjects={{ f_subjects }}&status={{ f_status }}&page={{ page+1 }}">下一页 ›</a>{% endif %}
 </div>
 {% endif %}
 <script>
