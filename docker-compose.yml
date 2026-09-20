@@ -16,5 +16,11 @@ services:
       # - EIGHTNATIONS_HEARTBEAT=1800
       # 目录收割每心跳预算（条），默认 40
       # - EIGHTNATIONS_CATALOG_BUDGET=20
+    # 容器日志限量：NAS 上 json-file 默认无上限，长跑会写满系统盘
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
 
 # 如需本地构建（而非拉取镜像）：将 image: 行替换为 build: .

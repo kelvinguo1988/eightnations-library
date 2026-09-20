@@ -1,0 +1,42 @@
+# 构建上下文排除清单 —— 只影响 `docker build` 上传给 daemon 的字节数，
+# 凡 Dockerfile 里 COPY 需要的（core/ sites/ web/ tools/ manage.py
+# scheduler.py entrypoint.sh requirements.txt）一律不排。
+
+# 本地数据（717MB 级，最容易把上下文撑爆 / 泄进镜像的东西）
+data/
+*.db
+*.pdf
+*.sqlite*
+
+# 版本库与工具目录
+.git/
+.gitignore
+.github/
+.workbuddy/
+docs/
+
+# Python 产物
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.venv/
+venv/
+
+# 只在宿主机用的脚本 / 页面 / 测试资产（镜像内不需要）
+index.html
+README.md
+docker-compose.yml
+digital_archives_to_pdf.py
+official_pdf_by_cids.py
+migrate-nas.sh
+tests/
+fixtures/
+
+# 编辑器与系统杂物
+.DS_Store
+*.swp
+.idea/
+.vscode/
+nohup.out
+*.log

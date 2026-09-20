@@ -1,11 +1,30 @@
-# 运行依赖（Python 3.9+）
-requests>=2.26
-pypdf>=3.0
+# ============================================================
+# 依赖清单 = 单一真相源
+# Dockerfile 用 `pip install -r requirements.txt` 安装运行依赖，
+# 不再在 Dockerfile 里重复硬编码包名。
+# 只给关键包加宽松上界（防大版本破坏性升级），不引入 lock 工具。
+# 注释一律独占一行（避免不同 pip 版本对内联注释的解析差异）。
+# ============================================================
 
-# 快照工具 tools/loc_snapshot.py --headed 需要（半自动过盾）
-playwright>=1.40
+# ---- 运行时依赖（Web 前端 + 调度器 + 下载流水线；镜像内安装） ----
 
-# 开发/测试
-pillow>=9.0
+# core/http.py：HTTP 客户端 / 断点续传下载
+requests>=2.31,<3
+# core/pdfbuild.py：PDF 合并与页数校验
+pypdf>=3.0,<7
+# web/app.py：API 与页面路由
+fastapi>=0.110,<1
+# web/app.py：ASGI 服务器（容器前台进程）
+uvicorn>=0.29,<1
+# web/app.py：Jinja2Templates 模板渲染
+jinja2>=3.1,<4
+# web/app.py：UploadFile / Form 解析（0.0.x 版本线，上界反而容易卡死）
+python-multipart>=0.0.9
+
+# ---- 以下不进镜像（宿主机工具与测试依赖，按需手工安装） ----
+# 目录快照工具 tools/loc_snapshot.py --headed 半自动过盾：
+#   pip install "playwright>=1.40" && playwright install chromium
+# 回归测试 tests/test_regressions.py 生成样张 JPEG（CI 的 test job 会装）：
+#   pip install "pillow>=9.0"
 
 # 调度器为纯标准库实现（scheduler.py），无额外依赖
