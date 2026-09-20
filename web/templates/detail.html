@@ -18,7 +18,7 @@
       <dt>架藏号</dt><dd>{{ b['shelf_id'] or '—' }}</dd>
       <dt>馆藏 ID</dt><dd>{{ b['source_uid'] }}（{{ b['volume_count'] or 1 }} 卷 / 约 {{ b['page_count'] or '?' }} 页）</dd>
       <dt>权利</dt><dd class="mut">{{ b['rights'][:160] or '—' }}</dd>
-      <dt>原馆页面</dt><dd><a href="{{ b['item_url'] }}" target="_blank">{{ b['item_url'] }}</a></dd>
+      <dt>原馆页面</dt><dd>{% set u = b['item_url']|ext_url %}{% if u %}<a href="{{ u }}" target="_blank" rel="noopener">{{ u }}</a>{% else %}{{ b['item_url'] or '—' }}{% endif %}</dd>
       <dt>本地路径</dt><dd class="mut">data/books/{{ urls.rel }}/</dd>
     </dl>
     <div class="btn-row">

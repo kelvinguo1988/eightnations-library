@@ -1,6 +1,6 @@
 /* 阅读器样式（沉浸式全屏） */
-:root{--bg:#14161c;--panel:#1d2028;--line:#2c313d;--tx:#e6e8ee;--tx2:#a4abbb;
-      --acc:#7aa2f7;--acc2:#9ece6a;--warn:#e0af68}
+:root{--bg:#14161c;--panel:#1d2028;--line:#2c313d;--tx:#e6e8ee;--tx2:#a4abbb;--tx3:#737b8d;
+      --acc:#7aa2f7;--acc2:#9ece6a;--warn:#e0af68;--red:#f7768e}
 *{box-sizing:border-box;margin:0;padding:0}
 html,body{height:100%}
 body{background:var(--bg);color:var(--tx);font-family:-apple-system,"PingFang SC","Hiragino Sans GB",sans-serif;overflow:hidden}
@@ -84,6 +84,13 @@ body{background:var(--bg);color:var(--tx);font-family:-apple-system,"PingFang SC
 .drawer li .bm-del{margin-left:auto;background:none;border:none;color:var(--tx2);cursor:pointer}
 .drawer li .bm-del:hover{color:var(--red)}
 .mut{color:var(--tx3);font-size:12.5px}
+/* read.html 不引 style.css（避免全局样式破坏沉浸式布局），此处补最小 .btn 样式 */
+.btn{display:inline-block;background:var(--panel);border:1px solid var(--line);color:var(--tx);
+     border-radius:7px;padding:7px 16px;font-size:13.5px;cursor:pointer;text-decoration:none}
+.btn:hover{border-color:var(--acc);color:var(--acc)}
+/* PDF 加载失败提示 */
+.load-error{display:flex;align-items:center;justify-content:center;min-height:40vh;padding:32px;
+  color:var(--tx2);font-size:14px;text-align:center;line-height:1.8}
 #toast{position:fixed;left:50%;bottom:72px;transform:translateX(-50%);background:rgba(30,33,42,.95);border:1px solid var(--line);color:var(--tx);padding:8px 16px;border-radius:8px;font-size:13px;z-index:60}
 /* 手机 */
 @media(max-width:720px){

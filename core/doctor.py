@@ -1,11 +1,16 @@
 """数据自检：CLI（manage.py doctor）与 Web 页面（/api/doctor）共用。"""
+import json
 import os
 from typing import List, Tuple
 
 
-def run_checks(d, books_dir: str, data_dir: str) -> Tuple[List[dict], int]:
+def run_checks(d, books_dir: str, data_dir: str,
+               verify_n: int = 0) -> Tuple[List[dict], int]:
     """执行全部检查，返回 (检查项列表, 问题数)。
 
+    verify_n>0 时额外深度抽检最近 N 册 done 书：按 meta.json 台账
+    复核每个产出 PDF 的 sha256 与页数（写侧曾有无总长截断判成功的
+    漏洞，坏文件只有哈希/页数校验才能查出）。
     检查项: {name, ok, detail}。
     """
     checks: List[dict] = []
@@ -98,5 +103,48 @@ def run_checks(d, books_dir: str, data_dir: str) -> Tuple[List[dict], int]:
         add("节流锁目录", True, f"可写：{rt}")
     except OSError as e:
         add("节流锁目录", False, f"不可写：{e}")
+
+    # 7) 深度抽检（可选）：按 meta.json 台账复核 sha256 与页数
+    if verify_n > 0:
+        from core.http import sha256_of
+        from core import pdfbuild
+        bad = []
+        checked = 0
+        rows = d.list_books(status="done", limit=100000)
+        for r in rows[-verify_n:]:
+            leaf = os.path.join(books_dir, r["source_id"],
+                                r["collection"] or "misc", r["source_uid"])
+            mpath = os.path.join(leaf, "meta.json")
+            if not os.path.isfile(mpath):
+                continue          # 无台账的历史产出物由"对账"项覆盖
+            checked += 1
+            tag = f"{r['source_id']}/{r['source_uid']}"
+            try:
+                with open(mpath, "r", encoding="utf-8") as f:
+                    rec = json.load(f)
+                for ent in rec.get("files") or []:
+                    p = os.path.join(leaf, ent.get("path") or "")
+                    if not os.path.isfile(p):
+                        bad.append(f"{tag}: 台账文件缺失 {ent.get('path')}")
+                        continue
+                    if ent.get("sha256") and sha256_of(p) != ent["sha256"]:
+                        bad.append(f"{tag}: sha256 不符 {ent.get('path')}")
+                        continue
+                    if ent.get("pages"):
+                        try:
+                            n = pdfbuild.pdf_page_count(p)
+                        except Exception as e:
+                            bad.append(f"{tag}: PDF 不可读 {ent.get('path')} ({e})")
+                        else:
+                            if n != ent["pages"]:
+                                bad.append(
+                                    f"{tag}: 页数不符 {ent.get('path')}"
+                                    f"（台账 {ent['pages']} 实际 {n}）")
+            except (OSError, ValueError) as e:
+                bad.append(f"{tag}: 台账解析失败 {e}")
+        add("产出物深度抽检", not bad,
+            f"抽检 {checked} 册（sha256+页数），全部一致"
+            if not bad else
+            f"{len(bad)} 处异常: {bad[:5]}")
 
     return checks, issues

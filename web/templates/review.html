@@ -23,22 +23,22 @@
 <div class="pillrow">
   <span class="plabel">朝代</span>
   {% for e in facets.eras %}
-  <a class="fpill {{ 'on' if e in era_sel }}" onclick="toggleParam('era','{{ e }}')">{{ e }}</a>
+  <a class="fpill {{ 'on' if e in era_sel }}" data-param="era" data-value="{{ e }}">{{ e }}</a>
   {% endfor %}
-  <a class="fpill {{ 'on' if 'unknown' in era_sel }}" onclick="toggleParam('era','unknown')">未知</a>
-  <a class="fpill inv" onclick='invertParam("era", {{ (facets.eras + ["unknown"])|tojson }})'>反选</a>
-  {% if era_sel %}<a class="fpill clear" onclick="clearParam('era')">✕</a>{% endif %}
+  <a class="fpill {{ 'on' if 'unknown' in era_sel }}" data-param="era" data-value="unknown">未知</a>
+  <a class="fpill inv" data-param="era" data-invert="{{ (facets.eras + ['unknown'])|tojson|forceescape }}">反选</a>
+  {% if era_sel %}<a class="fpill clear" data-param="era">✕</a>{% endif %}
 </div>
 <div class="pillrow">
   <span class="plabel">分类</span>
   {% for t in cjk_tags %}
-  <a class="fpill {{ 'on' if t in subj_sel }}" onclick="toggleParam('subjects','{{ t }}')">{{ t|jp2t }}</a>
+  <a class="fpill {{ 'on' if t in subj_sel }}" data-param="subjects" data-value="{{ t }}">{{ t|jp2t }}</a>
   {% endfor %}
   {% for t in en_tags %}
-  <a class="fpill {{ 'on' if t in subj_sel }}" onclick="toggleParam('subjects','{{ t }}')">{{ t }}</a>
+  <a class="fpill {{ 'on' if t in subj_sel }}" data-param="subjects" data-value="{{ t }}">{{ t }}</a>
   {% endfor %}
   {% if not cjk_tags and not en_tags %}<span class="mut">暂无分类数据（日本馆跑 enrich-na-jp 后出现）</span>{% endif %}
-  {% if subj_sel %}<a class="fpill clear" onclick="clearParam('subjects')">✕</a>{% endif %}
+  {% if subj_sel %}<a class="fpill clear" data-param="subjects">✕</a>{% endif %}
 </div>
 
 <div class="btn-row">
@@ -65,9 +65,9 @@
 </table>
 {% if pages > 1 %}
 <div class="pager">
-  {% if page > 1 %}<a href="/review?q={{ q }}&source={{ f_source }}&collection={{ f_collection }}&era={{ f_era }}&subjects={{ f_subjects }}&page={{ page-1 }}">‹ 上一页</a>{% endif %}
+  {% if page > 1 %}<a href="/review?q={{ q|urlencode }}&source={{ f_source|urlencode }}&collection={{ f_collection|urlencode }}&era={{ f_era|urlencode }}&subjects={{ f_subjects|urlencode }}&page={{ page-1 }}">‹ 上一页</a>{% endif %}
   <span class="cur">{{ page }} / {{ pages }}</span>
-  {% if page < pages %}<a href="/review?q={{ q }}&source={{ f_source }}&collection={{ f_collection }}&era={{ f_era }}&subjects={{ f_subjects }}&page={{ page+1 }}">下一页 ›</a>{% endif %}
+  {% if page < pages %}<a href="/review?q={{ q|urlencode }}&source={{ f_source|urlencode }}&collection={{ f_collection|urlencode }}&era={{ f_era|urlencode }}&subjects={{ f_subjects|urlencode }}&page={{ page+1 }}">下一页 ›</a>{% endif %}
 </div>
 {% endif %}
 {% else %}<div class="empty">🎉 没有待审核的新书</div>{% endif %}
@@ -83,27 +83,6 @@ async function decide(action){
     body:JSON.stringify({action,ids})});
   if(r.ok){location.reload()}else{alert('操作失败: '+(await r.text()))}
 }
-function toggleParam(key, val){
-  const p = new URLSearchParams(location.search);
-  let cur = (p.get(key)||"").split(",").filter(Boolean);
-  const i = cur.indexOf(val);
-  if(i>=0) cur.splice(i,1); else cur.push(val);
-  if(cur.length) p.set(key, cur.join(",")); else p.delete(key);
-  p.delete("page");
-  location.search = p.toString();
-}
-function invertParam(key, all){
-  const p = new URLSearchParams(location.search);
-  const cur = (p.get(key)||"").split(",").filter(Boolean);
-  const inv = all.filter(x=>!cur.includes(x));
-  if(inv.length) p.set(key, inv.join(",")); else p.delete(key);
-  p.delete("page");
-  location.search = p.toString();
-}
-function clearParam(key){
-  const p = new URLSearchParams(location.search);
-  p.delete(key); p.delete("page");
-  location.search = p.toString();
-}
 </script>
+<script src="/static/filters.js?v=20260920a"></script>
 {% endblock %}

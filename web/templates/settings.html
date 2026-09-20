@@ -85,31 +85,52 @@
   </div>
 </div>
 <script>
-function renderChecks(checks){
-  return checks.map(c =>
-    `<div style="padding:5px 0;border-bottom:1px dashed var(--line);font-size:13px">
-       <span style="color:${c.ok?'var(--acc2)':'var(--red)'};font-weight:700">${c.ok?'✓':'✗'}</span>
-       <b>${c.name}</b> — <span style="color:var(--tx2)">${c.detail}</span></div>`).join('');
+/* 结果一律用 DOM + textContent 构造，不进 innerHTML（防接口字段将来带上用户数据） */
+function makeCheckRow(c){
+  const row = document.createElement('div');
+  row.style.cssText = 'padding:5px 0;border-bottom:1px dashed var(--line);font-size:13px';
+  const mark = document.createElement('span');
+  mark.style.cssText = 'font-weight:700;color:' + (c.ok ? 'var(--acc2)' : 'var(--red)');
+  mark.textContent = c.ok ? '✓' : '✗';
+  const name = document.createElement('b');
+  name.textContent = c.name ?? '';
+  const sep = document.createElement('span');
+  sep.textContent = ' — ';
+  const detail = document.createElement('span');
+  detail.style.color = 'var(--tx2)';
+  detail.textContent = c.detail ?? '';
+  row.append(mark, ' ', name, sep, detail);
+  return row;
+}
+function setResult(el, children){
+  el.textContent = '';
+  children.forEach(n => el.appendChild(n));
 }
 document.getElementById('btn-doctor').onclick = async function(){
   this.disabled = true; this.textContent = '⏳ 检查中…';
+  const out = document.getElementById('maint-result');
   try{
     const r = await (await fetch('/api/doctor')).json();
-    document.getElementById('maint-result').innerHTML =
-      renderChecks(r.checks) +
-      `<div style="margin-top:10px;font-weight:700;color:${r.ok?'var(--acc2)':'var(--red)'}">
-         ${r.ok?'✅ 全部检查通过，数据完好':'✗ 发现 '+r.issues+' 个问题（见上）'}</div>`;
-  }catch(e){ document.getElementById('maint-result').textContent = '自检失败: '+e; }
+    const rows = (Array.isArray(r.checks) ? r.checks : []).map(makeCheckRow);
+    const sum = document.createElement('div');
+    sum.style.cssText = 'margin-top:10px;font-weight:700;color:' + (r.ok ? 'var(--acc2)' : 'var(--red)');
+    sum.textContent = r.ok ? '✅ 全部检查通过，数据完好'
+                           : '✗ 发现 ' + (Number(r.issues) || 0) + ' 个问题（见上）';
+    setResult(out, rows.concat(sum));
+  }catch(e){ out.textContent = '自检失败: ' + e; }
   this.disabled = false; this.textContent = '🔍 运行自检';
 };
 document.getElementById('btn-links').onclick = async function(){
   this.disabled = true; this.textContent = '⏳ 处理中…';
+  const out = document.getElementById('maint-result');
   try{
     const r = await (await fetch('/api/links',{method:'POST'})).json();
-    document.getElementById('maint-result').innerHTML =
-      `<div style="padding:5px 0;font-size:13px;color:var(--acc2)">✓ 书名硬链接：新建 ${r.created}，已存在 ${r.skipped}
-       （NAS 文件搜索现可按书名找到）</div>`;
-  }catch(e){ document.getElementById('maint-result').textContent = '失败: '+e; }
+    const div = document.createElement('div');
+    div.style.cssText = 'padding:5px 0;font-size:13px;color:var(--acc2)';
+    div.textContent = '✓ 书名硬链接：新建 ' + (Number(r.created) || 0) + '，已存在 ' + (Number(r.skipped) || 0)
+      + '（NAS 文件搜索现可按书名找到）';
+    setResult(out, [div]);
+  }catch(e){ out.textContent = '失败: ' + e; }
   this.disabled = false; this.textContent = '🔗 补建书名链接';
 };
 </script>

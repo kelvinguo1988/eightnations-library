@@ -116,8 +116,10 @@ def cmd_fetch(args) -> None:
     row = d.get_book(args.id)
     if not row:
         sys.exit(f"无此书 id={args.id}")
-    from core.limiter import HourQuota
-    fetch_one(d, row, args.quality, HourQuota(default_quota=10 ** 6))
+    fetch_one(d, row, args.quality)        # 手动单本：不限小时配额
+    status = d.get_book(args.id)["status"]
+    if status != "done":
+        sys.exit(f"下载未成功: status={status}")
 
 
 def cmd_fetch_next(args) -> None:
@@ -170,10 +172,13 @@ def cmd_doctor(args) -> None:
 
     容器重建后执行一次即可确认全部数据完好（退出码 0=健康 1=有问题）。
     Web 设置页的「运行自检」按钮与本命令共用同一检查实现。
+    --verify N 额外深度抽检最近 N 册：按 meta.json 复核 sha256 与页数
+    （读盘+哈希，大书较多时较慢，按需使用）。
     """
     from core.doctor import run_checks
     d = db()
-    checks, issues = run_checks(d, BOOKS_DIR, DATA_DIR)
+    checks, issues = run_checks(d, BOOKS_DIR, DATA_DIR,
+                                verify_n=args.verify or 0)
     for c in checks:
         print(("✓" if c["ok"] else "✗"), c["name"], "—", c["detail"])
     if issues:
@@ -335,14 +340,18 @@ def main() -> None:
     p = sub.add_parser("import-na-jp")
     p.add_argument("--fonds", required=True,
                    help="fonds 列表页 URL，如 .../fonds/3611449?page=1")
-    p.add_argument("--pages", type=int, default=50, help="最多扫的列表页数")
+    p.add_argument("--pages", type=int, default=15,
+                   help="最多扫的列表页数（与站点限流预算自洽，勿轻易调大）")
     p.add_argument("--budget", type=int, default=0,
                    help="单次最多抓取条目数（0=不限；默认不限，被限流时重跑续传）")
     p.set_defaults(func=cmd_import_na_jp)
 
     sub.add_parser("backfill-na-jp").set_defaults(func=cmd_backfill_na_jp)
 
-    sub.add_parser("doctor").set_defaults(func=cmd_doctor)
+    p = sub.add_parser("doctor")
+    p.add_argument("--verify", type=int, default=0,
+                   help="深度抽检最近 N 册产出物（sha256/页数，读盘较慢）")
+    p.set_defaults(func=cmd_doctor)
 
     sub.add_parser("links").set_defaults(func=cmd_links)
 

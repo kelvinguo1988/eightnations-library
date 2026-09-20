@@ -16,25 +16,44 @@ let theme = ["light", "sepia", "night"].includes(root.dataset.theme)
   ? root.dataset.theme : "light";
 let scrollPct = +root.dataset.scrollpct || 0;
 let doc = null, pageCount = 0, renderTasks = new Map(), touchX = null;
-let saveTimer = null;
+let saveTimer = null, heartbeat = null, exitSaved = false;
 let annMode = false, anns = [], drawing = null, editTarget = null;
 
 const viewer = $("viewer"), pagesEl = $("pages");
 const COLORS = ["#ffe066", "#a5f3a1", "#7dcfff", "#f7768e"];
 const KINDS = { highlight: "高亮", underline: "下划线", note: "备注" };
 
+/* 转义后再进 innerHTML 模板，防书签备注 / 标注文字 / kind 注入 */
+const escapeHtml = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => (
+  { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+/* 用户数据里的颜色只接受 #rrggbb，否则退回默认色，防注入 style */
+const safeColor = (c) => (/^#[0-9a-fA-F]{6}$/.test(c || "") ? c : COLORS[0]);
+
 /* ---------- 初始化 ---------- */
 async function init() {
-  doc = await pdfjsLib.getDocument({ url: PDF_URL }).promise;
-  pageCount = doc.numPages;
-  $("total-page").textContent = pageCount;
-  anns = JSON.parse(root.dataset.anns || "[]");
-  buildPlaceholders();
-  bindUI();
-  applyTheme();
-  goToPage(Math.min(Math.max(curPage, 1), pageCount), scrollPct, true);
-  saveProgressSoon();
-  setInterval(readingTick, 60000);          // 阅读心跳（每分钟）
+  try {
+    doc = await pdfjsLib.getDocument({ url: PDF_URL }).promise;
+    pageCount = doc.numPages;
+    $("total-page").textContent = pageCount;
+    anns = JSON.parse(root.dataset.anns || "[]");
+    buildPlaceholders();
+    bindUI();
+    applyTheme();
+    goToPage(Math.min(Math.max(curPage, 1), pageCount), scrollPct, true);
+    saveProgressSoon();
+    heartbeat = setInterval(readingTick, 60000);    // 阅读心跳（每分钟）
+  } catch (e) {
+    console.error("reader init", e);
+    showError("PDF 加载失败：" + (e && e.message ? e.message : e));
+  }
+}
+
+function showError(msg) {
+  pagesEl.textContent = "";
+  const div = document.createElement("div");
+  div.className = "load-error";
+  div.textContent = msg + " —— 请返回上页重试或到「任务」页查看该书记录";
+  pagesEl.appendChild(div);
 }
 
 function fitWidth() {
@@ -43,6 +62,7 @@ function fitWidth() {
 }
 
 function buildPlaceholders() {
+  io.disconnect();                            // 旧占位即将销毁，先断开观察
   pagesEl.innerHTML = "";
   pagesEl.style.width = layout === "double" ? "" : (viewer.clientWidth - 16) * zoom + "px";
   for (let i = 1; i <= pageCount; i++) {
@@ -52,6 +72,7 @@ function buildPlaceholders() {
     div.style.aspectRatio = "1 / 1.4";
     div.innerHTML = `<span class="pnum">${i}</span>`;
     pagesEl.appendChild(div);
+    io.observe(div);                          // 占位页交给观察器，进入视口才渲染
   }
   renderAllOverlays();
 }
@@ -72,7 +93,7 @@ async function renderPage(p) {
   if (renderTasks.has(p)) return;
   const holder = pagesEl.querySelector(`.page[data-page="${p}"]`);
   if (!holder) return;
-  const entry = { rendering: true, canvas: null };
+  const entry = { rendering: true, canvas: null, job: null };
   renderTasks.set(p, entry);
   try {
     const page = await doc.getPage(p);
@@ -85,7 +106,10 @@ async function renderPage(p) {
     canvas.width = Math.floor(vp.width);
     canvas.height = Math.floor(vp.height);
     entry.canvas = canvas;
-    await page.render({ canvasContext: canvas.getContext("2d"), viewport: vp }).promise;
+    const job = page.render({ canvasContext: canvas.getContext("2d"), viewport: vp });
+    entry.job = job;
+    if (renderTasks.get(p) !== entry) { try { job.cancel(); } catch (e) {} return; }
+    await job.promise;
     if (renderTasks.get(p) !== entry) return;
     holder.replaceChildren(canvas, Object.assign(document.createElement("span"),
       { className: "pnum", textContent: p }));
@@ -122,8 +146,19 @@ function saveProgress() {
     headers: { "Content-Type": "application/json" }, keepalive: true,
     body: JSON.stringify({ page: curPage, scroll_pct: pct, zoom, layout, theme }) });
 }
-addEventListener("pagehide", saveProgress);
-addEventListener("beforeunload", saveProgress);
+/* 页面退出（pagehide 与 beforeunload 会先后触发）只统一落盘一次，并清掉挂起定时器 */
+function exitFlush() {
+  clearTimeout(saveTimer);
+  saveTimer = null;
+  if (exitSaved) return;
+  exitSaved = true;
+  saveProgress();
+}
+addEventListener("pagehide", exitFlush);
+addEventListener("beforeunload", exitFlush);
+addEventListener("pageshow", () => {         // bfcache 恢复：允许再次退出时保存
+  if (exitSaved) { exitSaved = false; saveProgressSoon(); }
+});
 
 function readingTick() {
   if (document.visibilityState !== "visible") return;
@@ -168,7 +203,10 @@ function applyTheme() {
 }
 
 function rerenderAll() {
-  renderTasks.forEach((t) => { if (t.canvas) t.canvas.remove(); });
+  renderTasks.forEach((t) => {
+    if (t.job) { try { t.job.cancel(); } catch (e) {} }   // 取消进行中的 PDF.js 渲染
+    if (t.canvas) t.canvas.remove();
+  });
   renderTasks.clear();
   buildPlaceholders();
   goToPage(curPage, 0, true);
@@ -197,7 +235,10 @@ async function refreshBookmarks() {
   const list = await updateStar();
   const ul = $("bm-list");
   ul.innerHTML = list.length
-    ? list.map((b) => `<li data-page="${b.page}"><b>${b.page}</b> 页 ${b.note ? "· " + b.note : ""} <button class="bm-del" data-page="${b.page}">✕</button></li>`).join("")
+    ? list.map((b) => {
+        const pg = +b.page || 0;
+        return `<li data-page="${pg}"><b>${pg}</b> 页 ${b.note ? "· " + escapeHtml(b.note) : ""} <button class="bm-del" data-page="${pg}">✕</button></li>`;
+      }).join("")
     : `<li class="mut">暂无书签 —— 顶部 ☆ 收藏当前页</li>`;
   ul.querySelectorAll("li[data-page]").forEach((li) => {
     li.onclick = (e) => {
@@ -231,7 +272,7 @@ function renderOverlays(page) {
     d.dataset.id = a.id;
     d.style.cssText = `left:${a.x0 * 100}%;top:${a.y0 * 100}%;` +
       `width:${(a.x1 - a.x0) * 100}%;height:${(a.y1 - a.y0) * 100}%;` +
-      `--c:${a.color}`;
+      `--c:${safeColor(a.color)}`;
     if (a.kind === "note") d.textContent = "📝";
     holder.appendChild(d);
   }
@@ -252,15 +293,15 @@ function openEditor(a, holder) {
   ed.innerHTML = `
     <div class="ed-head">
       <span class="ed-ic">${KIND_ICON[a.kind] || "🖍"}</span>
-      <span class="ed-title">${KINDS[a.kind] || a.kind} · 第 ${a.page} 页</span>
+      <span class="ed-title">${escapeHtml(KINDS[a.kind] || a.kind)} · 第 ${+a.page || 0} 页</span>
       <button class="ed-close" title="关闭">✕</button>
     </div>
     <div class="swatches">${COLORS.map((c) =>
-      `<button class="sw ${c === a.color ? "on" : ""}" data-c="${c}"
+      `<button class="sw ${c === safeColor(a.color) ? "on" : ""}" data-c="${c}"
         style="--c:${c}" title="换色"><span class="tick">✓</span></button>`).join("")}</div>
     <div class="kinds">${Object.entries(KINDS).map(([k, v]) =>
       `<button class="kd ${k === a.kind ? "on" : ""}" data-k="${k}">${KIND_ICON[k]} ${v}</button>`).join("")}</div>
-    <textarea placeholder="备注 / 划词文字…（保存到标注）">${a.text || ""}</textarea>
+    <textarea placeholder="备注 / 划词文字…（保存到标注）">${escapeHtml(a.text || "")}</textarea>
     <div class="ed-row">
       <button class="ed-del">🗑 删除</button>
       <button class="ed-save">✓ 保存</button>

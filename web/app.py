@@ -6,9 +6,12 @@
 """
 import json
 import os
+import re
+import shutil
 import sys
 import threading
 import time
+import uuid
 from typing import List, Optional
 
 from fastapi import FastAPI, File, Form, Request, Response, UploadFile
@@ -20,10 +23,9 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from core.db import DB, utcnow                   # noqa: E402
 from core.importer import import_snapshot_files  # noqa: E402
-from core.pipeline import fetch_one, create_title_links   # noqa: E402
+from core.pipeline import fetch_one, create_title_links, _dest_dir  # noqa: E402
 from core.doctor import run_checks                # noqa: E402
 from core.mounts import data_mount, migration_commands  # noqa: E402
-from core.limiter import HourQuota               # noqa: E402
 from core.text import jp2t                       # noqa: E402
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -41,28 +43,39 @@ app.mount("/data", StaticFiles(directory=BOOKS_DIR), name="data")
 
 
 _DB: Optional[DB] = None
+_DB_LOCK = threading.Lock()
 
 
 def get_db() -> DB:
-    """进程内单例：迁移/建表只跑一次（原先每个请求都执行 init）。"""
+    """进程内单例：迁移/建表只跑一次（加锁防首并发双重 init）。"""
     global _DB
     if _DB is None:
-        _DB = DB(DB_PATH)
-        _DB.init()
+        with _DB_LOCK:
+            if _DB is None:
+                d = DB(DB_PATH)
+                d.init()
+                _DB = d
     return _DB
 
 
 def book_urls(row) -> dict:
-    rel = f"{row['source_id']}/{row['collection'] or 'misc'}/{row['source_uid']}"
-    directory = os.path.join(BOOKS_DIR, rel)
+    try:
+        directory = _dest_dir(row["source_id"], row["collection"],
+                              row["source_uid"])
+    except ValueError:
+        # 库中存在非法路径段的历史行：不给任何文件链接（读侧同样防御）
+        return {"rel": "", "pdfs": [], "pdf": "", "cover": "",
+                "cover_exists": False}
+    rel = os.path.relpath(directory, BOOKS_DIR)
     pdfs: list = []
     if os.path.isdir(directory):
+        # 只列实体 PDF（book.pdf / book_NN.pdf）；cover.pdf 与书名硬链接
+        # 不参与"在线阅读"翻页，否则封面会被当成正文第一本
         names = sorted(n for n in os.listdir(directory)
-                       if n == "book.pdf" or n == "cover.pdf" or
-                       (n.startswith("book_") and n.endswith(".pdf")))
+                       if n == "book.pdf" or re.fullmatch(r"book_\d+\.pdf", n))
         pdfs = [f"/data/{rel}/{n}" for n in names]
     cover = f"/data/{rel}/cover.jpg"
-    cover_exists = os.path.exists(os.path.join(BOOKS_DIR, rel, "cover.jpg"))
+    cover_exists = os.path.exists(os.path.join(directory, "cover.jpg"))
     return {"rel": rel, "pdfs": pdfs, "pdf": pdfs[0] if pdfs else "",
             "cover": cover, "cover_exists": cover_exists}
 
@@ -80,14 +93,44 @@ def get_facets(d: DB, source: str) -> dict:
     return val
 
 
+_NAV_BY_PATH = {"/": "shelf", "/explore": "library", "/review": "review",
+                "/jobs": "jobs", "/settings": "settings"}
+
+
 def common_ctx(request: Request, d: DB, **kw) -> dict:
     with d.connect() as conn:
         sources = [dict(r) for r in conn.execute(
             "SELECT * FROM sources ORDER BY id")]
     ctx = {"request": request, "counts": d.count_by_status(),
-           "sources": sources}
+           "sources": sources,
+           "nav": _NAV_BY_PATH.get(request.url.path, "")}
     ctx.update(kw)
     return ctx
+
+
+# ---------------------------------------------------------- 输入白名单
+ANN_KINDS = {"highlight", "underline", "note"}
+COLOR_RE = re.compile(r"^#[0-9a-fA-F]{6}$")
+LAYOUTS = {"scroll", "double", "single"}
+THEMES = {"light", "night"}
+QUALITIES = {"auto", "pdf", "orig", "mid", "thumb"}
+
+
+def _ann_fields(body: dict) -> tuple:
+    """标注 kind/color 服务端白名单（前端渲染直接进 class/style，必须校验）。"""
+    kind = str(body.get("kind") or "highlight")
+    color = str(body.get("color") or "#ffe066")
+    return (kind if kind in ANN_KINDS else "highlight",
+            color if COLOR_RE.fullmatch(color) else "#ffe066")
+
+
+def _ext_url(u: str) -> str:
+    """站外链接协议白名单：非 http(s)（如 javascript:）一律不给渲染。"""
+    u = str(u or "")
+    return u if u.startswith(("http://", "https://")) else ""
+
+
+templates.env.filters["ext_url"] = _ext_url
 
 
 # 专藏 slug → 中文显示标签（slug 同时是落盘路径段，不可改名）
@@ -148,7 +191,9 @@ def bookshelf(request: Request, tab: str = "reading"):
                 "SELECT b.*, r.page AS rpage, r.updated_at AS rat "
                 "FROM books b JOIN reading_progress r ON r.book_id=b.id "
                 "ORDER BY r.updated_at DESC LIMIT 60").fetchall()
-        total = len(rows)
+            total = conn.execute(
+                "SELECT COUNT(*) n FROM books b "
+                "JOIN reading_progress r ON r.book_id=b.id").fetchone()["n"]
         for r in rows:
             card = {"row": r, "rpage": r["rpage"],
                     "pct": min(100, round((r["rpage"] or 1) * 100 /
@@ -159,12 +204,11 @@ def bookshelf(request: Request, tab: str = "reading"):
             if hero is None:
                 hero = card
     elif tab == "favorite":
-        rows = d.list_books(status="done", keyword="", limit=200)
-        rows = [r for r in rows if r["favorite"]]
-        total = len(rows)
+        total = d.count_books(status="done", favorite=True)
+        rows = d.list_books(status="done", favorite=True, limit=1000)
     else:
-        rows = d.list_books(status="done", limit=200)
-        total = len(rows)
+        total = d.count_books(status="done")
+        rows = d.list_books(status="done", limit=1000)
     if tab != "reading":
         for r in rows:
             u = book_urls(r)
@@ -280,9 +324,11 @@ async def api_progress(book_id: int, request: Request):
         zoom = min(max(float(body.get("zoom") or 1), 0.4), 3)
     except (TypeError, ValueError):
         return JSONResponse({"error": "参数不合法"}, status_code=400)
+    layout = str(body.get("layout") or "scroll")
+    theme = str(body.get("theme") or "light")
     d.save_progress(book_id, page, scroll_pct, zoom,
-                    str(body.get("layout") or "scroll"),
-                    str(body.get("theme") or "light"))
+                    layout if layout in LAYOUTS else "scroll",
+                    theme if theme in THEMES else "light")
     return {"ok": True}
 
 
@@ -332,10 +378,9 @@ async def api_annotation_add(request: Request):
         return JSONResponse({"error": "参数不合法"}, status_code=400)
     if not d.get_book(book_id):
         return JSONResponse({"error": "书不存在"}, status_code=404)
-    ann_id = d.add_annotation(book_id, page,
-                              str(body.get("kind") or "highlight"),
-                              x0, y0, x1, y1,
-                              str(body.get("color") or "#ffe066"),
+    kind, color = _ann_fields(body)
+    ann_id = d.add_annotation(book_id, page, kind,
+                              x0, y0, x1, y1, color,
                               str(body.get("text") or ""))
     return {"ok": True, "id": ann_id}
 
@@ -344,9 +389,8 @@ async def api_annotation_add(request: Request):
 async def api_annotation_edit(ann_id: int, request: Request):
     d = get_db()
     body = await request.json()
-    d.update_annotation(ann_id, str(body.get("kind") or "highlight"),
-                        str(body.get("color") or "#ffe066"),
-                        str(body.get("text") or ""))
+    kind, color = _ann_fields(body)
+    d.update_annotation(ann_id, kind, color, str(body.get("text") or ""))
     return {"ok": True}
 
 
@@ -455,13 +499,14 @@ async def api_review(request: Request):
                     row = d.get_book(i)
                     if not row or row["status"] != "queued":
                         continue
-                    q_row = d.connect().execute(
-                        "SELECT hourly_quota, quality FROM sources WHERE id=?",
-                        (row["source_id"],)).fetchone()
+                    with d.connect() as conn:
+                        q_row = conn.execute(
+                            "SELECT hourly_quota, quality FROM sources WHERE id=?",
+                            (row["source_id"],)).fetchone()
                     quota_n = int(q_row["hourly_quota"]) if q_row else 10
                     quality = q_row["quality"] if q_row else "auto"
-                    fetch_one(d, row, quality,
-                              HourQuota(default_quota=max(quota_n, 1)))
+                    # 配额账本在 jobs 表：与 scheduler 共享同一小时窗
+                    fetch_one(d, row, quality, quota_n)
                 except Exception as e:
                     d.log(f"立即下载 #{i} 异常: {e}", level="warn")
         threading.Thread(target=_worker, daemon=True).start()
@@ -488,23 +533,28 @@ async def api_retry(request: Request):
 
 
 @app.post("/api/fetch")
-async def api_fetch(request: Request):
-    """从任务面板手动触发单本下载（与调度器共用管线/配额）。"""
+def api_fetch(payload: dict):
+    """从任务面板手动触发单本下载（与调度器共用管线/jobs 配额账本）。
+
+    同步 def：FastAPI 会放进线程池执行——下载分钟级耗时，
+    async 处理器里同步跑会把整个事件循环卡死（全站无响应）。
+    """
     d = get_db()
-    body = await request.json()
     try:
-        book_id = int(body.get("id") or 0)
-    except (TypeError, ValueError):
+        book_id = int(payload.get("id") or 0)
+    except (AttributeError, TypeError, ValueError):
         return JSONResponse({"error": "id 不合法"}, status_code=400)
     row = d.get_book(book_id)
     if not row or row["status"] != "queued":
         return JSONResponse({"error": "书不存在或不在 queued"}, status_code=400)
     src = row["source_id"]
-    quota_row = d.connect().execute(
-        "SELECT hourly_quota, quality FROM sources WHERE id=?", (src,)).fetchone()
+    with d.connect() as conn:
+        quota_row = conn.execute(
+            "SELECT hourly_quota, quality FROM sources WHERE id=?",
+            (src,)).fetchone()
     quota_n = int(quota_row["hourly_quota"]) if quota_row else 10
     quality = quota_row["quality"] if quota_row else "auto"
-    ok = fetch_one(d, row, quality, HourQuota(default_quota=quota_n))
+    ok = fetch_one(d, row, quality, quota_n)
     return {"ok": bool(ok), "status": d.get_book(row["id"])["status"]}
 
 
@@ -584,7 +634,11 @@ async def settings_save(request: Request):
         except (TypeError, ValueError):
             quota = 10
         quality = form.get(f"quality_{sid}") or "auto"
+        if quality not in QUALITIES:
+            quality = "auto"
         catalog_url = (form.get(f"catalog_url_{sid}") or "").strip()
+        if catalog_url and not catalog_url.startswith(("http://", "https://")):
+            catalog_url = ""
         with d.connect() as conn:
             conn.execute(
                 "UPDATE sources SET enabled=?, hourly_quota=?, quality=?, "
@@ -592,6 +646,23 @@ async def settings_save(request: Request):
                 (enabled, quota, quality, catalog_url, sid))
     d.log("更新站点设置")
     return RedirectResponse("/settings", status_code=303)
+
+
+_MAX_UPLOAD_FILE = 64 * 1024 * 1024      # 单个快照 JSON 上限 64MB
+_MAX_UPLOAD_TOTAL = 256 * 1024 * 1024    # 单次上传总量上限
+
+
+def _copy_capped(src, out, cap: int) -> bool:
+    """流式拷至多 cap 字节；超限返回 False（不整文件入内存，防内存 DoS）。"""
+    n = 0
+    while True:
+        chunk = src.read(min(1 << 20, cap + 1 - n))
+        if not chunk:
+            return n <= cap
+        out.write(chunk)
+        n += len(chunk)
+        if n > cap:
+            return False
 
 
 @app.post("/upload-snapshot")
@@ -603,19 +674,46 @@ async def upload_snapshot(source: str = Form(...),
              d.connect().execute("SELECT id FROM sources").fetchall()}
     if source not in known:
         return JSONResponse({"error": f"未知来源 {source}"}, status_code=400)
+    if len(files) > 2000:
+        return JSONResponse({"error": "单次文件数过多（≤2000）"}, status_code=400)
+    # uuid 目录：同一秒并发上传也不会互相覆盖/混入
     ts_dir = os.path.join(DATA_DIR, "snapshots", source,
-                          "upload_" + utcnow().replace(":", ""))
+                          "upload_" + utcnow().replace(":", "")
+                          + "_" + uuid.uuid4().hex[:8])
     os.makedirs(ts_dir, exist_ok=True)
     saved = 0
-    for f in files:
-        name = os.path.basename(f.filename or "")
-        if name.endswith(".json"):
-            with open(os.path.join(ts_dir, name), "wb") as out:
-                out.write(await f.read())
+    total_bytes = 0
+    try:
+        for f in files:
+            # 老浏览器/Windows 路径可能带反斜杠，basename 不处理
+            name = os.path.basename((f.filename or "").replace("\\", "/"))
+            if not name.endswith(".json") or name == ".json":
+                continue
+            dest = os.path.join(ts_dir, name)
+            with open(dest, "wb") as out:
+                if not _copy_capped(f.file, out,
+                                    min(_MAX_UPLOAD_FILE,
+                                        _MAX_UPLOAD_TOTAL - total_bytes)):
+                    shutil.rmtree(ts_dir, ignore_errors=True)
+                    return JSONResponse(
+                        {"error": "快照过大（单文件≤64MB，总计≤256MB）"},
+                        status_code=400)
+            total_bytes += os.path.getsize(dest)
             saved += 1
+    finally:
+        for f in files:
+            try:
+                f.file.close()
+            except Exception:
+                pass
     if not saved:
+        shutil.rmtree(ts_dir, ignore_errors=True)
         return JSONResponse({"error": "未收到 .json 文件"}, status_code=400)
-    new, updated = import_snapshot_files(d, source, ts_dir)
+    try:
+        new, updated = import_snapshot_files(d, source, ts_dir)
+    except ValueError as e:
+        d.log(f"快照导入被拒：非法条目 {e}", level="warn", source=source)
+        return JSONResponse({"error": f"快照含非法条目: {e}"}, status_code=400)
     d.log(f"Web 上传快照: {saved} 个文件（新书 {new}，更新 {updated}）",
           source=source)
     return RedirectResponse("/review", status_code=303)
