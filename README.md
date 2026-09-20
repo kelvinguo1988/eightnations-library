@@ -36,7 +36,9 @@
 ```bash
 git clone https://github.com/kelvinguo1988/eightnations-library.git
 cd eightnations-library
-pip install -r requirements.txt        # playwright 需另执行: playwright install chromium
+pip install -r requirements.txt        # 仅运行时依赖（镜像同款）
+# 本机跑快照工具/回归测试需另装：
+#   pip install "pillow>=9.0" "playwright>=1.40" && playwright install chromium
 
 python3 manage.py init-db              # 建库（自动写入各馆种子配置）
 nohup python3 scheduler.py >> data/logs/scheduler.log 2>&1 &   # 调度守护（可选）

@@ -176,7 +176,8 @@ LoC 目录变化很慢（专藏一年更新几次），**发现层低频 + 可�
 ## 5. 计划任务与限速
 
 - **调度器**：APScheduler（进程内，免额外服务）
-  - `下载心跳`：默认每 15 分钟触发一次（`EIGHTNATIONS_HEARTBEAT` 秒可调；拉长更保守）；从 `queued` 按来源轮询取任务；每源持有常驻 HourQuota 滑动窗口，"本小时已启动册数 ≥ hourly_quota"则跳过——每小时配额是真实的小时窗（v0.4 修复：此前每次心跳新建配额对象，实际变成"每心跳 N 册"）。
+  - `下载心跳`：默认每 15 分钟触发一次（`EIGHTNATIONS_HEARTBEAT` 秒可调；拉长更保守）；从 `queued` 按来源轮询取任务；每小时配额改为 jobs 台账滑动窗口——认领事务内统计"本小时该源已启动的 job 数 ≥ hourly_quota"即跳过（v0.5 重构：配额持久化在 SQLite，跨进程/重启可见，取代此前进程内 HourQuota 对象）。
+  - `租约回收`：job 记录执行方 pid + 心跳时间；每次心跳先回收"进程已死或心跳停滞"的 running 任务（置 failed、书目回 queued），多进程/重启不再互相踩踏。
   - `目录巡检`：每周触发一次 `harvest_catalog`（snapshot 策略时提示"请刷新快照"）。
   - `失败重试`：指数退避，重试 ≥5 次转 `dead`，前端可手动重排。
 - **礼貌性**：每源并发 1、页间随机延时 0.8–2s、诚实 UA（如 `eightnations-archiver/0.1 (personal study; contact=...)`）、仅抓公开领域（rights 字段校验）、夜间时段可选。
