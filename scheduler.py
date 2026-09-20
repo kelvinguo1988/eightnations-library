@@ -5,9 +5,12 @@
 "每小时十册、连续数月跑完一个馆"的落地形态：
   * 每轮心跳：① direct 策略馆的目录增量收割（预算制，防封禁）
               ② 从 queued 取书下载（每源每小时 ≤ hourly_quota 册，滑动窗口）；
-  * HourQuota 常驻实例保证滑动窗口跨心跳生效（每小时配额是真实的小时窗）；
+  * 每小时配额以 jobs 表为账本（DB 写事务内原子消费），scheduler 与 Web
+    「立即下载」共享同一窗口，重启不清零；
+  * running 回收采用租约：持有进程退出或久未续约才回收，不误伤他进程下载；
   * 心跳间隔用环境变量 EIGHTNATIONS_HEARTBEAT（秒）调整，默认 900；
-  * 大册跨心跳续跑由页级断点保证安全；重启后进程内配额清零，无碍；
+  * 大册跨心跳续跑由页级断点保证安全；
+  * 逐源 try/except：单馆异常不影响其他馆，也不跳过回收步骤；
   * 事件写库（web 任务面板可读）+ 本地日志。
 
 用法:
@@ -16,9 +19,10 @@
 Docker 部署后由容器 ENTRYPOINT 直接运行本文件（与 web 同容器）。
 """
 import os
+import sqlite3
 import sys
 import time
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from typing import Dict
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -106,16 +110,17 @@ def main() -> None:
     os.makedirs(os.path.join(DATA_DIR, "logs"), exist_ok=True)
     d = DB(DB_PATH)
     d.init()
-    # 崩溃恢复：进程内没有正在进行的下载，running 状态必定是上次中断残留
-    with d.connect() as conn:
-        stuck = conn.execute(
-            "UPDATE books SET status='queued', last_error='进程中断恢复' "
-            "WHERE status='running'").rowcount
-    if stuck:
-        d.log(f"启动恢复: {stuck} 册 running → queued", source="scheduler")
-        print(f"[scheduler] 恢复 {stuck} 册中断任务 → queued", flush=True)
+    # 崩溃恢复走租约：只回收持有进程已退出/久未续约的 running（Web 进程
+    # 正在进行的下载 pid 存活且有心跳，绝不再被无条件重置——那会造成
+    # 双进程并发写同一 .part）。此后每个心跳重复执行，兼顾运行期崩溃。
+    try:
+        n = d.reap_stuck()
+        if n:
+            d.log(f"启动恢复: 回收 {n} 册中断下载 → queued", source="scheduler")
+            print(f"[scheduler] 恢复 {n} 册中断任务 → queued", flush=True)
+    except sqlite3.Error as e:
+        print(f"[scheduler] 启动回收失败(继续): {e}", flush=True)
     blocked_until: Dict[str, float] = {}
-    quotas: Dict[str, "object"] = {}     # 常驻实例 → "每小时 N 册"滑动窗口跨心跳生效
     last_prune = 0.0
     print(f"[scheduler] 启动: 心跳 {HEARTBEAT_SEC}s, 目录预算/心跳 {CATALOG_BUDGET} "
           f"条, db={DB_PATH}", flush=True)
@@ -128,43 +133,22 @@ def main() -> None:
                     " (SELECT COUNT(*) FROM books b WHERE b.source_id=s.id)"
                     " AS total FROM sources s WHERE s.enabled=1").fetchall()
             for s in sources:
-                # 1) 目录发现（direct 策略：空库首次收割 / 未完成续传 / 每周巡检）
-                if s["meta_strategy"] == "direct" and s["catalog_url"] \
-                        and _stale(s["last_catalog_at"]):
-                    if time.time() < blocked_until.get(s["id"], 0):
-                        pass        # 限流冷却中，本轮跳过
-                    elif seed_catalog(d, s):
-                        blocked_until[s["id"]] = time.time() + BLOCK_COOLDOWN_S
-                # 2) 下载心跳（常驻 HourQuota：每小时 ≤ hourly_quota 册）
-                if not s["pending"]:
-                    continue
-                quota = quotas.get(s["id"])
-                if quota is None or getattr(quota, "default_quota", None) \
-                        != s["hourly_quota"]:
-                    from core.limiter import HourQuota
-                    quota = HourQuota(default_quota=s["hourly_quota"])
-                    quotas[s["id"]] = quota
-                tried, ok, hit = run_source_heartbeat(
-                    d, s["id"], s["hourly_quota"], s["quality"], quota=quota)
-                print(f"[scheduler] {s['id']}: 尝试 {tried} 成功 {ok}"
-                      f"{'(配额尽)' if hit else ''}，剩 {s['pending'] - tried} 在队列",
-                      flush=True)
-            # 3) 超时 running 回收：Web 进程崩溃残留的下载
-            #    （阈值 60 分钟，远大于正常单册/单卷下载时长）
-            cutoff = (datetime.now(timezone.utc) -
-                      timedelta(minutes=60)).strftime("%Y-%m-%dT%H:%M:%SZ")
-            with d.connect() as conn:
-                stuck = conn.execute(
-                    "UPDATE books SET status='queued', "
-                    "last_error='running 超时回收' WHERE status='running' AND id IN "
-                    "(SELECT book_id FROM jobs WHERE state='running' "
-                    " AND started_at < ?)", (cutoff,)).rowcount
+                # 逐源隔离：一个馆异常（适配器 bug/未注册源/网络风暴）
+                # 不得拖死整轮心跳，否则后续馆全部停摆且回收步骤被跳过。
+                try:
+                    _source_round(d, s, blocked_until)
+                except Exception as e:
+                    d.log(f"站点 {s['id']} 本轮异常: {e}", level="warn",
+                          source=s["id"])
+                    print(f"[scheduler] {s['id']}: 本轮异常 {e}", flush=True)
+            # 超时/中断 running 回收（租约判活，同事务关闭旧 job 行）
+            stuck = d.reap_stuck()
             if stuck:
-                d.log(f"回收 {stuck} 册超时 running → queued", level="warn",
+                d.log(f"回收 {stuck} 册中断 running → queued", level="warn",
                       source="scheduler")
                 print(f"[scheduler] 回收 {stuck} 册超时任务", flush=True)
 
-            # 4) 事件日志裁剪（每 6 小时，保留最近 2000 条）
+            # 事件日志裁剪（每 6 小时，保留最近 2000 条）
             if time.time() - last_prune > 6 * 3600:
                 with d.connect() as conn:
                     conn.execute("DELETE FROM events WHERE id < "
@@ -177,6 +161,25 @@ def main() -> None:
             print(f"[scheduler] 心跳异常(继续): {e}", flush=True)
             d.log(f"调度心跳异常: {e}", level="warn", source="scheduler")
         time.sleep(HEARTBEAT_SEC)
+
+
+def _source_round(d: DB, s, blocked_until: Dict[str, float]) -> None:
+    """单个源的一轮心跳：目录发现 + 下载（配额由 jobs 账本跨进程共享）。"""
+    # 1) 目录发现（direct 策略：空库首次收割 / 未完成续传 / 每周巡检）
+    if s["meta_strategy"] == "direct" and s["catalog_url"] \
+            and _stale(s["last_catalog_at"]):
+        if time.time() < blocked_until.get(s["id"], 0):
+            pass        # 限流冷却中，本轮跳过
+        elif seed_catalog(d, s):
+            blocked_until[s["id"]] = time.time() + BLOCK_COOLDOWN_S
+    # 2) 下载心跳（每源每小时 ≤ hourly_quota 册，DB 滑窗账本）
+    if not s["pending"]:
+        return
+    tried, ok, hit = run_source_heartbeat(
+        d, s["id"], s["hourly_quota"], s["quality"])
+    print(f"[scheduler] {s['id']}: 尝试 {tried} 成功 {ok}"
+          f"{'(配额尽)' if hit else ''}，剩 {s['pending'] - tried} 在队列",
+          flush=True)
 
 
 if __name__ == "__main__":

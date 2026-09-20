@@ -9,7 +9,8 @@ import json
 import os
 import sqlite3
 import threading
-from datetime import datetime, timezone
+from contextlib import contextmanager
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
 _SCHEMA = """
@@ -69,6 +70,8 @@ CREATE TABLE IF NOT EXISTS jobs(
   outputs TEXT DEFAULT '[]',
   last_error TEXT DEFAULT '',
   started_at TEXT NOT NULL,
+  heartbeat_at TEXT DEFAULT '',    -- 下载进行中定期续约（租约判活）
+  pid INTEGER DEFAULT 0,           -- 持有进程（同容器内 scheduler/web 可直接判活）
   finished_at TEXT DEFAULT ''
 );
 CREATE TABLE IF NOT EXISTS reading_progress(
@@ -135,6 +138,22 @@ class DB:
         conn.execute("PRAGMA foreign_keys=ON")
         return conn
 
+    @contextmanager
+    def _immediate(self):
+        """显式写事务（BEGIN IMMEDIATE）：跨进程互斥，供认领/回收等
+        读-改-写序列使用，避免两进程同时走 INSERT 分支的竞态。"""
+        conn = self.connect()
+        conn.isolation_level = None
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            yield conn
+            conn.execute("COMMIT")
+        except Exception:
+            conn.execute("ROLLBACK")
+            raise
+        finally:
+            conn.close()
+
     def init(self) -> None:
         os.makedirs(os.path.dirname(self.path) or ".", exist_ok=True)
         with self._lock, self.connect() as conn:
@@ -153,6 +172,11 @@ class DB:
             pcols = {r["name"] for r in conn.execute("PRAGMA table_info(reading_progress)")}
             if pcols and "theme" not in pcols:
                 conn.execute("ALTER TABLE reading_progress ADD COLUMN theme TEXT DEFAULT 'light'")
+            jcols = {r["name"] for r in conn.execute("PRAGMA table_info(jobs)")}
+            if "heartbeat_at" not in jcols:
+                conn.execute("ALTER TABLE jobs ADD COLUMN heartbeat_at TEXT DEFAULT ''")
+            if "pid" not in jcols:
+                conn.execute("ALTER TABLE jobs ADD COLUMN pid INTEGER DEFAULT 0")
             for row in _DEFAULT_SOURCES:
                 conn.execute(
                     "INSERT OR IGNORE INTO sources(id,name,country,flag,adapter,"
@@ -261,11 +285,27 @@ class DB:
                          (utcnow(), source_id))
 
     # ---- books ----
+    @staticmethod
+    def _check_path_segments(source_uid: str, collection: str) -> None:
+        """入库即拒绝会成为路径穿越的元素（这些值后续直接做落盘路径段）。
+
+        collection 允许为空（落盘归入 misc 目录）；source_uid 必须非空。
+        """
+        def _illegal(v: str) -> bool:
+            return (v in (".", "..") or "/" in v or "\\" in v or "\x00" in v)
+        if not source_uid or _illegal(source_uid):
+            raise ValueError(f"非法 source_uid: {source_uid!r}")
+        if collection and _illegal(collection):
+            raise ValueError(f"非法 collection: {collection!r}")
+
     def upsert_book(self, source_id: str, meta: Dict[str, Any]) -> bool:
         """按 (source_id, source_uid) 插入或更新元数据；保留状态/决策字段。
 
-        返回 True 表示是新插入（即"新书"）。
+        返回 True 表示是新插入（即"新书"）。跨进程并发安全：写事务内
+        SELECT→UPDATE/INSERT，唯一约束冲突（另一进程刚插入）回退为更新。
         """
+        self._check_path_segments(meta["source_uid"],
+                                  meta.get("collection", ""))
         cols = {
             "title": meta.get("title", ""), "alt_title": meta.get("alt_title", ""),
             "author": meta.get("author", ""), "era": meta.get("era", ""),
@@ -281,12 +321,12 @@ class DB:
             "files_json": json.dumps(meta.get("page_files") or [], ensure_ascii=False),
             "raw_json": json.dumps(meta.get("raw") or {}, ensure_ascii=False),
         }
-        with self._lock, self.connect() as conn:
-            cur = conn.execute(
+
+        def _update_or_insert(conn) -> bool:
+            row = conn.execute(
                 "SELECT id, subjects, pdf_urls, files_json FROM books "
                 "WHERE source_id=? AND source_uid=?",
-                (source_id, meta["source_uid"]))
-            row = cur.fetchone()
+                (source_id, meta["source_uid"])).fetchone()
             if row:
                 # 合并保护：新快照缺某字段(空值)时不覆盖库中已有数据
                 # （如早期紧凑快照无 subject、集合级无逐页清单）
@@ -303,6 +343,14 @@ class DB:
                 (source_id, meta["source_uid"], utcnow(), *cols.values()))
             return True
 
+        with self._lock, self._immediate() as conn:
+            try:
+                return _update_or_insert(conn)
+            except sqlite3.IntegrityError:
+                # _immediate 已 ROLLBACK；等另一进程事务结束后重试即为更新分支
+                with self._immediate() as retry:
+                    return _update_or_insert(retry)
+
     def get_book(self, book_id: int) -> Optional[sqlite3.Row]:
         with self.connect() as conn:
             return conn.execute("SELECT * FROM books WHERE id=?", (book_id,)).fetchone()
@@ -315,10 +363,10 @@ class DB:
 
     def list_books(self, status: str = "", source_id: str = "",
                    collection: str = "", keyword: str = "", era: str = "",
-                   subjects: str = "",
+                   subjects: str = "", favorite: bool = False,
                    limit: int = 200, offset: int = 0) -> List[sqlite3.Row]:
         where, args = self._book_filters(status, source_id, collection, keyword,
-                                         era, subjects)
+                                         era, subjects, favorite)
         sql = "SELECT * FROM books" + where + " ORDER BY id LIMIT ? OFFSET ?"
         args += [limit, offset]
         with self.connect() as conn:
@@ -327,11 +375,14 @@ class DB:
     @staticmethod
     def _book_filters(status: str = "", source_id: str = "",
                       collection: str = "", keyword: str = "",
-                      era: str = "", subjects: str = "") -> tuple:
+                      era: str = "", subjects: str = "",
+                      favorite: bool = False) -> tuple:
         sql, args = " WHERE 1=1", []
         if status:
             sql += " AND status=?"
             args.append(status)
+        if favorite:
+            sql += " AND favorite=1"
         if source_id:
             sql += " AND source_id=?"
             args.append(source_id)
@@ -357,9 +408,9 @@ class DB:
 
     def count_books(self, status: str = "", source_id: str = "",
                     collection: str = "", keyword: str = "", era: str = "",
-                    subjects: str = "") -> int:
+                    subjects: str = "", favorite: bool = False) -> int:
         where, args = self._book_filters(status, source_id, collection, keyword,
-                                         era, subjects)
+                                         era, subjects, favorite)
         with self.connect() as conn:
             row = conn.execute("SELECT COUNT(*) AS n FROM books" + where, args).fetchone()
             return row["n"]
@@ -419,12 +470,50 @@ class DB:
         防止调度器与 Web 手动触发并发抓同一本书（双写同一 .part 会损坏文件）。
         返回 False 表示已被其他执行方认领。
         """
-        with self._lock, self.connect() as conn:
+        job_id, quota_full, claimed = self.claim_and_start(book_id, "auto")
+        return claimed
+
+    def claim_and_start(self, book_id: int, quality: str,
+                        quota_limit: Optional[int] = None) -> tuple:
+        """认领 + 建 job 同一写事务（不留下"running 但无 job"的孤儿窗口）。
+
+        每小时配额以 jobs.started_at 为账本（跨进程共享，落库持久），
+        在认领事务内计数，检查与消费原子完成。
+
+        返回 (job_id, quota_full, claimed)。
+        """
+        cutoff = (datetime.now(timezone.utc) -
+                  timedelta(hours=1)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        with self._lock, self._immediate() as conn:
+            row = conn.execute(
+                "SELECT status, source_id FROM books WHERE id=?",
+                (book_id,)).fetchone()
+            if not row or row["status"] not in ("queued", "failed", "dead"):
+                return None, False, False
+            if quota_limit is not None:
+                used = conn.execute(
+                    "SELECT COUNT(*) n FROM jobs j JOIN books b ON b.id=j.book_id "
+                    "WHERE b.source_id=? AND j.started_at>=?",
+                    (row["source_id"], cutoff)).fetchone()["n"]
+                if used >= quota_limit:
+                    return None, True, False
             cur = conn.execute(
                 "UPDATE books SET status='running', attempt=attempt+1 "
                 "WHERE id=? AND status IN ('queued','failed','dead')",
                 (book_id,))
-            return cur.rowcount > 0
+            if not cur.rowcount:
+                return None, False, False
+            job = conn.execute(
+                "INSERT INTO jobs(book_id,state,quality,started_at,pid) "
+                "VALUES(?,?,?,?,?)",
+                (book_id, "running", quality, utcnow(), os.getpid()))
+            return int(job.lastrowid), False, True
+
+    def job_heartbeat(self, job_id: int) -> None:
+        """下载进行中续约租约（reap 以此判活）。"""
+        with self._lock, self.connect() as conn:
+            conn.execute("UPDATE jobs SET heartbeat_at=? WHERE id=? AND state='running'",
+                         (utcnow(), job_id))
 
     def update_download_info(self, book_id: int, cover_path: str,
                              page_count: int) -> None:
@@ -442,8 +531,9 @@ class DB:
     def start_job(self, book_id: int, quality: str) -> int:
         with self._lock, self.connect() as conn:
             cur = conn.execute(
-                "INSERT INTO jobs(book_id,state,quality,started_at) "
-                "VALUES(?,'running',?,?)", (book_id, quality, utcnow()))
+                "INSERT INTO jobs(book_id,state,quality,started_at,pid) "
+                "VALUES(?,'running',?,?,?)",
+                (book_id, quality, utcnow(), os.getpid()))
             return int(cur.lastrowid)
 
     def finish_job(self, job_id: int, state: str, pages: int, total: int,
@@ -454,6 +544,55 @@ class DB:
                 "outputs=?,last_error=?,finished_at=? WHERE id=?",
                 (state, pages, total, bytes_done,
                  json.dumps(outputs, ensure_ascii=False), error, utcnow(), job_id))
+
+    @staticmethod
+    def _pid_alive(pid: int) -> bool:
+        """同容器/同主机判活（scheduler 与 web 共容器，pid 可直接探测）。
+        pid<=0 为旧数据未知持有者 → 视作存活，交给超时规则。"""
+        if pid <= 0:
+            return True
+        try:
+            os.kill(pid, 0)
+            return True
+        except ProcessLookupError:
+            return False
+        except PermissionError:
+            return True
+
+    def reap_stuck(self, stale_minutes: int = 60) -> int:
+        """回收中断的下载（租约模型，替代原"无条件 running→queued"）：
+
+        * running job 的持有进程已退出 → 立即回收（进程重启后无 PID 复用窗口）；
+        * 或超过 stale_minutes 未续约（旧数据/同机 PID 被复用导致的假活）→ 回收；
+        * 回收时同一事务内关闭 jobs 行——否则旧 job 永久 running，书被重新
+          认领后每个心跳又会被超时规则误回收，与真正执行方双写。
+        返回回收册数。
+        """
+        cutoff = (datetime.now(timezone.utc) -
+                  timedelta(minutes=stale_minutes)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        now = utcnow()
+        with self._lock, self._immediate() as conn:
+            jobs = conn.execute(
+                "SELECT id, book_id, pid, "
+                " COALESCE(NULLIF(heartbeat_at,''),started_at) AS last_beat "
+                "FROM jobs WHERE state='running'").fetchall()
+            reaped_books = []
+            for j in jobs:
+                if self._pid_alive(j["pid"]) and j["last_beat"] >= cutoff:
+                    continue
+                conn.execute(
+                    "UPDATE jobs SET state='failed', last_error='执行方中断，租约回收', "
+                    "finished_at=? WHERE id=?", (now, j["id"]))
+                reaped_books.append(j["book_id"])
+            n = 0
+            for book_id in reaped_books:
+                cur = conn.execute(
+                    "UPDATE books SET status='queued', last_error='下载中断回收' "
+                    "WHERE id=? AND status='running' AND NOT EXISTS "
+                    "(SELECT 1 FROM jobs WHERE book_id=? AND state='running')",
+                    (book_id, book_id))
+                n += cur.rowcount
+            return n
 
     def log(self, message: str, level: str = "info", source: str = "",
             book_id: Optional[int] = None) -> None:
