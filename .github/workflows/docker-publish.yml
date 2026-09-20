@@ -6,12 +6,47 @@ on:
     tags: ["v*"]
   workflow_dispatch:
 
+# 同一 ref 的连推排队跑：latest 的语义是"最新"，cancel-in-progress 会让
+# 旧 commit 的构建后完成并把 latest 覆盖回旧版本，故只排队不取消。
+concurrency:
+  group: docker-${{ github.ref }}
+  cancel-in-progress: false
+
 permissions:
   contents: read
   packages: write
 
 jobs:
+  # 回归前置于构建：语法（py_compile 全仓）+ 9 组离线回归，绿了才发镜像
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        # requirements.txt 只列镜像运行时依赖；playwright / pillow 属宿主机
+        # 工具与测试依赖（刻意不进镜像），测试环境显式补 pillow
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install "pillow>=9.0"
+
+      - name: Syntax check (py_compile)
+        run: |
+          find . -name '*.py' \
+            -not -path './data/*' -not -path './.git/*' \
+            -not -path '*/__pycache__/*' -print0 \
+            | xargs -0 --no-run-if-empty python -m py_compile
+
+      - name: Regression tests
+        run: python tests/test_regressions.py
+
   build-push:
+    needs: test
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -37,9 +72,14 @@ jobs:
       - uses: docker/build-push-action@v6
         with:
           context: .
+          # 两平台在同一次 buildx 调用里构建：这样推上去的是一个 manifest list
+          # （NAS 拉 latest 自动选架构）。若拆成 platform matrix 各自 push，
+          # 后推的单架构 manifest 会覆盖前一个，NAS 就可能拉到错架构镜像。
+          # 因此 buildx 这里只能挂一个缓存导出端（共享 scope）；并发导致的
+          # 缓存互相挤掉已由上面的 concurrency 排队规避。
           platforms: linux/amd64,linux/arm64
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-from: type=gha,scope=buildx-multiarch
+          cache-to: type=gha,mode=max,scope=buildx-multiarch
