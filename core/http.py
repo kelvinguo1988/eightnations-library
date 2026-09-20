@@ -54,11 +54,6 @@ class DomainThrottle:
             time.sleep(min(sleep_for, 5.0) + random.uniform(0, self.jitter))
 
 
-# 进程级共享节流：跨适配器/跨册保持对同一域名的最小间隔
-# （多进程间不共享；进程本身只有 scheduler 一个抓取执行方，够用）
-SHARED_THROTTLE = DomainThrottle()
-
-
 def _data_dir() -> str:
     d = os.environ.get("EIGHTNATIONS_DATA")
     if not d:
@@ -103,6 +98,7 @@ class FileThrottle(DomainThrottle):
                         fh.seek(0)
                         fh.truncate()
                         fh.write(str(now))
+                        fh.flush()   # 落盘先于解锁，否则他进程可能读到旧时刻
                         return
                 finally:
                     self._fcntl.flock(fh, self._fcntl.LOCK_UN)
@@ -158,8 +154,10 @@ class HttpClient:
                  expected_bytes: Optional[int] = None) -> bool:
         """流式下载到 dest，支持 Range 续传。成功(且体积达标)返回 True。
 
-        完整性: 首个响应带 Content-Length / Content-Range 总长时，完成后必须
-        与之相等；200 全量响应直接覆盖残片，杜绝 200/206 混拼导致的损坏。
+        完整性: 响应带 Content-Length / Content-Range 总长时，完成后必须
+        与之相等；响应未给总长（chunked）时，只有本轮迭代正常结束
+        （completed）才接受——连接中断的残片绝不算成功。
+        200 全量响应直接覆盖残片，杜绝 200/206 混拼导致的损坏。
         dest 已存在且体积达标时直接跳过（失败重试不重复下载已完成卷/页）。
         """
         if os.path.exists(dest) and os.path.getsize(dest) >= max(min_bytes, 1):
@@ -178,6 +176,7 @@ class HttpClient:
             headers: Dict[str, str] = {}
             if os.path.exists(part) and os.path.getsize(part) > 0:
                 headers["Range"] = f"bytes={os.path.getsize(part)}-"
+            completed = False
             try:
                 with self.session.get(url, timeout=min(self.timeout * 5, 600),
                                       headers=headers, stream=True) as r:
@@ -188,14 +187,16 @@ class HttpClient:
                             full_size = int(m.group(1))
                         with open(part, "ab") as f:
                             pump(f, r)
+                        completed = True
                     elif r.status_code == 200:
                         clen = r.headers.get("Content-Length", "")
                         if clen.isdigit():
                             full_size = int(clen)
                         with open(part, "wb") as f:   # 覆盖残片全量重下
                             pump(f, r)
+                        completed = True
                     elif r.status_code == 416:
-                        pass                          # 残片已到全长，走下方校验
+                        completed = True              # 残片已到全长，走下方校验
                     else:
                         raise requests.HTTPError(f"HTTP {r.status_code}")
             except requests.RequestException:
@@ -211,7 +212,7 @@ class HttpClient:
                     except OSError:
                         pass
                     full_size = expected_bytes
-            elif size >= min_bytes:                   # 响应未给总长（少见）
+            elif completed and size >= min_bytes:     # 无总长：仅收完整迭代
                 os.replace(part, dest)
                 return True
         return False

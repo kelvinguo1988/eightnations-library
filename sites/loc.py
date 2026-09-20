@@ -14,10 +14,12 @@ import re
 import time
 from typing import Any, Dict, List, Optional
 
-from core.http import HttpClient, sha256_of
+from core.http import HttpClient
 from core.limiter import Progress
 from core.models import BookMeta, DownloadResult
 from core import pdfbuild
+from sites.base import (assemble_pages_to_pdf, iiif_size_url,
+                        write_meta_json)
 
 # 朝代启发式：LoC created_published/date 里的英文纪年关键词
 _ERA_RULES = [
@@ -61,7 +63,11 @@ def _era_and_years(result: Dict[str, Any]):
         json.dumps(result.get("dates") or [], ensure_ascii=False)])
     era = next((zh for keys, zh in _ERA_RULES
                 if any(k in text.lower() for k in keys)), "")
-    nums = [int(y) for y in re.findall(r"\b(1[0-9]{3})\b", text)]
+    # 年份窗口 500-2100：原 \b(1[0-9]{3})\b 只认 1000-1999，唐代写本与
+    # 民国后年份全部漏掉。LoC 日期字段为 4 位补零 ISO（如 "0852"），
+    # 故只认四位数字并卡合理区间（三位数噪声太大：卷号/页码/编号）。
+    nums = [int(y) for y in re.findall(r"\b\d{4}\b", text)
+            if 500 <= int(y) <= 2100]
     year = None
     d = str(result.get("date") or "")
     m = re.match(r"^\s*(\d{4})", d)
@@ -195,6 +201,13 @@ class LocAdapter:
             pages = meta.page_files[i] if i < len(meta.page_files) else []
             suffix = "" if n_res == 1 else f"_{i + 1:02d}"
             out_pdf = os.path.join(dest_dir, f"book{suffix}.pdf")
+            # 每卷独立页目录（同 na_jp）：共用 _pages 时卷2 的 page_0001
+            # 会命中卷1 残留文件（download 对已存在文件直接跳过）→ 串页 PDF
+            pages_dir = os.path.join(dest_dir, f"_pages_{i + 1:02d}")
+
+            def _images(tier: str = "1600,") -> int:
+                return assemble_pages_to_pdf(pages, out_pdf, pages_dir,
+                                             http, tier, progress)
 
             use_pdf = pdf_url and quality in ("auto", "pdf")
             if quality == "pdf" and not pdf_url:
@@ -206,8 +219,7 @@ class LocAdapter:
                         "thumb": "1024,"}.get(
                             quality if quality in ("orig", "mid", "thumb")
                             else "mid", "1600,")
-                n = self._assemble_from_images(pages, tier, dest_dir,
-                                               out_pdf, http, progress)
+                n = _images(tier)
                 if n > 0:
                     outputs.append(out_pdf)
                     pages_done += n
@@ -220,8 +232,8 @@ class LocAdapter:
                         f"——运行 tools/loc_fill_details.py 补详情后重试")
                 continue
 
-            ok = http.download(pdf_url, out_pdf, min_bytes=100_000)
-            if ok:
+            pdf_failed = False
+            if http.download(pdf_url, out_pdf, min_bytes=100_000):
                 try:
                     n = pdfbuild.pdf_page_count(out_pdf)
                     outputs.append(out_pdf)
@@ -234,8 +246,19 @@ class LocAdapter:
                     except OSError:
                         pass
                     errors.append(f"卷{i + 1}: PDF 校验失败 {e}")
+                    pdf_failed = True
             else:
                 errors.append(f"卷{i + 1}: 官方 PDF 下载失败")
+                pdf_failed = True
+            if pdf_failed and quality == "auto" and pages:
+                # auto 兜底：官方 PDF 不可用 → 逐页组图（同 na_jp 语义）
+                n = _images("1600,")
+                if n > 0:
+                    outputs.append(out_pdf)
+                    pages_done += n
+                    bytes_done += os.path.getsize(out_pdf)
+                else:
+                    errors.append(f"卷{i + 1}: IIIF 组图兜底失败(0页)")
 
         # 封面缩略图（网格展示用；失败不致命）
         cover_path = ""
@@ -244,86 +267,22 @@ class LocAdapter:
             if not self._download_cover(meta.cover_url, cover_path, http):
                 cover_path = ""
 
+        # 成功语义（各馆统一）：有产出即 ok；缺卷/部分失败照常记 errors，
+        # 靠页级断点续传在重跑时补齐，不把整条记录打成 failed 烧配额。
         result = DownloadResult(
-            ok=bool(outputs) and not errors,
+            ok=bool(outputs),
             outputs=outputs, pages=pages_done, bytes_done=bytes_done,
             errors=errors)
-        self._write_meta_json(dest_dir, meta, result, quality, started)
+        write_meta_json(dest_dir, "loc", meta, result, started,
+                        quality=quality,
+                        extra={"alt_title": meta.alt_title,
+                               "era": meta.era,
+                               "years": [meta.year_start, meta.year_end],
+                               "shelf_id": meta.shelf_id,
+                               "collection": meta.collection,
+                               "rights": meta.rights})
         return result
 
-    def _assemble_from_images(self, pages: List[List[Dict[str, Any]]], tier: str,
-                              dest_dir: str, out_pdf: str, http: HttpClient,
-                              progress: Optional[Progress]) -> int:
-        """逐页下载（每页取宽度最大的 JPEG 变体，按 tier 改写 IIIF 尺寸）→ 组 PDF。"""
-        if not pages:
-            return 0
-        pages_dir = os.path.join(dest_dir, "_pages")
-        os.makedirs(pages_dir, exist_ok=True)
-        paths: List[str] = []
-        for idx, variants in enumerate(pages, 1):
-            if not variants:
-                continue
-            best = max(variants,
-                       key=lambda v: int(v.get("width") or 0))
-            url = self._iiif_tier_url(str(best.get("url") or ""), tier)
-            if not url:
-                continue
-            path = os.path.join(pages_dir, f"page_{idx:04d}.jpg")
-            if not (os.path.exists(path) and os.path.getsize(path) > 10_000):
-                if not http.download(url, path, min_bytes=10_000):
-                    continue
-            paths.append(path)
-            if progress:
-                progress.tick(1, len(pages))
-        if not paths:
-            return 0
-        pdfbuild.build_pdf(paths, out_pdf)
-        if len(paths) >= len(pages) - 2:      # 允许个别缺页，其余清理
-            for p in paths:
-                try:
-                    os.remove(p)
-                except OSError:
-                    pass
-            try:
-                os.rmdir(pages_dir)
-            except OSError:
-                pass
-        return len(paths)
-
-    @staticmethod
-    def _iiif_tier_url(url: str, tier: str) -> str:
-        # https://tile.loc.gov/image-services/iiif/public:a:b/full/pct:100.0/0/default.jpg
-        # -> /full/<tier>/0/default.jpg
-        return re.sub(r"/full/[^/]+/", f"/full/{tier}/", url, count=1)
-
     def _download_cover(self, cover_url: str, dest: str, http: HttpClient) -> bool:
-        url = self._iiif_tier_url(cover_url, "480,")
-        return http.download(url, dest, min_bytes=2_000)
-
-    @staticmethod
-    def _write_meta_json(dest_dir: str, meta: BookMeta, result: DownloadResult,
-                         quality: str, started: float) -> None:
-        record = {
-            "source": "loc",
-            "source_uid": meta.source_uid,
-            "title": meta.title,
-            "alt_title": meta.alt_title,
-            "era": meta.era,
-            "years": [meta.year_start, meta.year_end],
-            "shelf_id": meta.shelf_id,
-            "collection": meta.collection,
-            "item_url": meta.item_url,
-            "rights": meta.rights,
-            "quality": quality,
-            "downloaded_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-            "elapsed_s": round(time.time() - started, 1),
-            "pages": result.pages,
-            "bytes": result.bytes_done,
-            "errors": result.errors,
-            "files": [
-                {"path": os.path.basename(p), "sha256": sha256_of(p),
-                 "bytes": os.path.getsize(p)}
-                for p in result.outputs],
-        }
-        with open(os.path.join(dest_dir, "meta.json"), "w", encoding="utf-8") as f:
-            json.dump(record, f, ensure_ascii=False, indent=1)
+        return http.download(iiif_size_url(cover_url, "480,"), dest,
+                             min_bytes=2_000)

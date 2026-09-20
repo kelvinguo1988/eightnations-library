@@ -11,17 +11,16 @@
 
 礼貌性: SRU 每页 50 条；IIIF 图像复用 core/http 每域节流（gallica.bnf.fr 2s）。
 """
-import json
 import os
 import re
 import time
 from typing import Any, Dict, List, Optional
 from xml.etree import ElementTree as ET
 
-from core.http import HttpClient, sha256_of
+from core.http import HttpClient
 from core.limiter import Progress
 from core.models import BookMeta, DownloadResult
-from core import pdfbuild
+from sites.base import assemble_pages_to_pdf, write_meta_json
 
 SRU_BASE = "https://catalogue.bnf.fr/api/SRU"
 IIIF_BASE = "https://gallica.bnf.fr/iiif"
@@ -193,7 +192,11 @@ class BnfAdapter:
             raw={"manifest_label": label, "creator": rec.get("creator", "")})
 
     def parse_snapshot(self, payload: Any, collection_slug: str = ""):
-        return []   # BnF 走实时收割，无快照流程
+        # BnF 是 direct 策略：发现层走 harvest_step 实时 SRU 收割，
+        # 无 tools/<id>_snapshot.py 快照流程；此方法仅为满足
+        # SourceAdapter 协议存在性，恒返回空列表（sources.meta_strategy
+        # 决定 scheduler 永远不会把快照喂给它）。
+        return []
 
     # ---------------- 下载层（gallica IIIF 直连） ----------------
     def download_item(self, meta: BookMeta, dest_dir: str, http: HttpClient,
@@ -208,68 +211,33 @@ class BnfAdapter:
         for vi, pages in enumerate(meta.page_files or []):
             suffix = "" if len(meta.page_files) == 1 else f"_{vi + 1:02d}"
             out_pdf = os.path.join(dest_dir, f"book{suffix}.pdf")
-            pages_dir = os.path.join(dest_dir, "_pages")
-            os.makedirs(pages_dir, exist_ok=True)
-            paths = []
-            for idx, page in enumerate(pages, 1):
-                if not page:
-                    continue
-                best = max(page, key=lambda v: int(v.get("width") or 0))
-                url = re.sub(r"/full/[^/]+/0/native\.jpg$",
-                             f"/full/{tier}/0/native.jpg", str(best.get("url") or ""))
-                if not url:
-                    continue
-                path = os.path.join(pages_dir, f"page_{idx:04d}.jpg")
-                if not (os.path.exists(path) and os.path.getsize(path) > 10_000):
-                    if not http.download(url, path, min_bytes=10_000):
-                        continue
-                paths.append(path)
-                if progress:
-                    progress.tick(1, len(pages))
-            if not paths:
+            # 每卷独立页目录（同 na_jp/loc）：共用 _pages 会让卷2 命中卷1
+            # 残留页（download 对已存在文件跳过）→ 串页 PDF
+            n = assemble_pages_to_pdf(pages, out_pdf,
+                                      os.path.join(
+                                          dest_dir, f"_pages_{vi + 1:02d}"),
+                                      http, tier, progress)
+            if n == 0:
                 errors.append(f"卷{vi + 1}: 0 页下载成功")
                 continue
-            pdfbuild.build_pdf(paths, out_pdf)
             outputs.append(out_pdf)
-            pages_done += len(paths)
-            if len(paths) >= len(pages) - 2:
-                for p in paths:
-                    try:
-                        os.remove(p)
-                    except OSError:
-                        pass
-                try:
-                    os.rmdir(pages_dir)
-                except OSError:
-                    pass
+            pages_done += n
         cover_path = ""
         if meta.cover_url:
             cover_path = os.path.join(dest_dir, "cover.jpg")
             if not http.download(meta.cover_url, cover_path, min_bytes=2_000):
                 cover_path = ""
+        # 成功语义统一：有产出即 ok，缺卷记 errors 靠断点续传补齐
         result = DownloadResult(
-            ok=bool(outputs) and not errors,
+            ok=bool(outputs),
             outputs=outputs, pages=pages_done,
             bytes_done=sum(os.path.getsize(p) for p in outputs),
             errors=errors)
-        self._write_meta(dest_dir, meta, result, quality, started)
+        write_meta_json(dest_dir, "bnf", meta, result, started,
+                        quality=quality,
+                        extra={"era": meta.era,
+                               "years": [meta.year_start, meta.year_end],
+                               "collection": meta.collection,
+                               "rights": meta.rights})
         return result
 
-    @staticmethod
-    def _write_meta(dest_dir: str, meta: BookMeta, result: DownloadResult,
-                    quality: str, started: float) -> None:
-        record = {
-            "source": "bnf", "source_uid": meta.source_uid,
-            "title": meta.title, "era": meta.era,
-            "years": [meta.year_start, meta.year_end],
-            "collection": meta.collection, "item_url": meta.item_url,
-            "rights": meta.rights, "quality": quality,
-            "downloaded_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-            "elapsed_s": round(time.time() - started, 1),
-            "pages": result.pages, "bytes": result.bytes_done,
-            "errors": result.errors,
-            "files": [{"path": os.path.basename(p), "sha256": sha256_of(p),
-                       "bytes": os.path.getsize(p)} for p in result.outputs],
-        }
-        with open(os.path.join(dest_dir, "meta.json"), "w", encoding="utf-8") as f:
-            json.dump(record, f, ensure_ascii=False, indent=1)
