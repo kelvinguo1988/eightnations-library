@@ -317,6 +317,8 @@ def reader(book_id: int, request: Request, p: int = 0):
 @app.post("/api/progress/{book_id}")
 async def api_progress(book_id: int, request: Request):
     d = get_db()
+    if not d.get_book(book_id):
+        return JSONResponse({"error": "书不存在"}, status_code=404)
     body = await request.json()
     try:
         page = max(1, int(body.get("page") or 1))

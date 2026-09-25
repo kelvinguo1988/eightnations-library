@@ -140,8 +140,13 @@ function saveProgressSoon() {
 }
 
 function saveProgress() {
-  const pct = viewer.scrollHeight > viewer.clientHeight
-    ? viewer.scrollTop / (viewer.scrollHeight - viewer.clientHeight || 1) : 0;
+  // 页内相对位置（与 goToPage 的恢复语义一致：页码 + 页内偏移）
+  let pct = 0;
+  if (layout !== "single") {
+    const div = pagesEl.querySelector(`.page[data-page="${curPage}"]`);
+    if (div && div.offsetHeight > 0)
+      pct = Math.min(Math.max((viewer.scrollTop - div.offsetTop) / div.offsetHeight, 0), 1);
+  }
   fetch(`/api/progress/${BOOK}`, { method: "POST",
     headers: { "Content-Type": "application/json" }, keepalive: true,
     body: JSON.stringify({ page: curPage, scroll_pct: pct, zoom, layout, theme }) });
