@@ -17,7 +17,8 @@ permissions:
   packages: write
 
 jobs:
-  # 回归前置于构建：语法（py_compile 全仓）+ 9 组离线回归，绿了才发镜像
+  # 回归前置于构建：语法（py_compile 全仓）+ pytest 全量 + pyflakes + 变异命中率，
+  # 全绿才发镜像。测试必须离线（不联网、不读宿主 data/），否则 CI 不可复现。
   test:
     runs-on: ubuntu-latest
     steps:
@@ -28,12 +29,12 @@ jobs:
           python-version: "3.12"
 
       - name: Install dependencies
-        # requirements.txt 只列镜像运行时依赖；playwright / pillow 属宿主机
-        # 工具与测试依赖（刻意不进镜像），测试环境显式补 pillow
+        # requirements.txt 只列镜像运行时依赖；playwright / pillow / pytest 属
+        # 宿主机工具与测试依赖（刻意不进镜像），测试环境显式补
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          pip install "pillow>=9.0"
+          pip install "pillow>=9.0" pytest pyflakes
 
       - name: Syntax check (py_compile)
         run: |
@@ -42,8 +43,31 @@ jobs:
             -not -path '*/__pycache__/*' -print0 \
             | xargs -0 --no-run-if-empty python -m py_compile
 
-      - name: Regression tests
-        run: python tests/test_regressions.py
+      - name: pyflakes（静态检查，0 告警才过）
+        run: python -m pyflakes core web sites tools scheduler.py manage.py tests conftest.py
+
+      - name: pytest（用例数为 0 视为失败）
+        # 审查 D P0：「pytest 报 no tests ran 却 exit 0」是假绿，必须显式断言数量。
+        run: |
+          set -o pipefail
+          python -m pytest tests/ -q --junitxml=/tmp/junit.xml | tee /tmp/pytest.log
+          python - <<'PY'
+          import sys, xml.etree.ElementTree as ET
+          root = ET.parse("/tmp/junit.xml").getroot()
+          suites = [root] if root.tag == "testsuite" else root.findall("testsuite")
+          total = sum(int(s.get("tests", 0)) for s in suites)
+          fail = sum(int(s.get("failures", 0)) + int(s.get("errors", 0)) for s in suites)
+          print(f"collected={total} failed={fail}")
+          if total == 0:
+              print("::error::测试用例数为 0（假绿），CI 失败")
+              sys.exit(1)
+          sys.exit(1 if fail else 0)
+          PY
+
+      - name: 变异命中率（守卫测试必须能抓住缺陷）
+        # 审查 D P0：基线 8 个变异只有 3 个被抓 → 5 个"防线不存在"。
+        # 本步要求全部变异被杀死；逃逸即说明某行为缺少可观测的测试覆盖。
+        run: python tests/mutation_check.py
 
   build-push:
     needs: test
