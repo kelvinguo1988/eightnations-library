@@ -195,7 +195,21 @@ class LocAdapter:
         errors: List[str] = []
         started = time.time()
 
+        # 官方 PDF 的 min_bytes 只是"体积下界"，证明不了内容完整：
+        # 一本 100 页善本约 20MB，而阈值 100KB 仅占 0.5%，半截文件也能过。
+        # 因此给 download 传 validator —— 已存在文件与刚下完的文件都必须能读出页数，
+        # 否则删掉重下（审查 A P0-1：skip-if-exists 会把半截 PDF 永久判成功）。
+        def _pdf_ok(path: str) -> bool:
+            try:
+                return pdfbuild.pdf_page_count(path) >= 1
+            except Exception:
+                return False
+
         n_res = max(len(meta.pdf_urls), len(meta.page_files), 1)
+        # 缺卷清单：有产出但某些卷没做成时如实上报，pipeline 据此记
+        # "done + 欠账待补"（needs_topup），下一轮自动补齐缺的卷
+        # （审查 A P1-2：旧实现只要有一卷成功就整本 done，缺卷永远没人补）。
+        missing: List[str] = []
         for i in range(n_res):
             pdf_url = meta.pdf_urls[i] if i < len(meta.pdf_urls) else ""
             pages = meta.page_files[i] if i < len(meta.page_files) else []
@@ -212,6 +226,7 @@ class LocAdapter:
             use_pdf = pdf_url and quality in ("auto", "pdf")
             if quality == "pdf" and not pdf_url:
                 errors.append(f"卷{i + 1}: quality=pdf 但无官方 PDF 链接")
+                missing.append(f"卷{i + 1}")
                 continue
             if not use_pdf:
                 # IIIF 组图兜底（orig/mid/thumb/auto-无PDF）
@@ -226,14 +241,17 @@ class LocAdapter:
                     bytes_done += os.path.getsize(out_pdf)
                 elif pages:
                     errors.append(f"卷{i + 1}: IIIF 组图失败(0页)")
+                    missing.append(f"卷{i + 1}")
                 else:
                     errors.append(
                         f"卷{i + 1}: 无官方PDF直链且缺逐页清单"
                         f"——运行 tools/loc_fill_details.py 补详情后重试")
+                    missing.append(f"卷{i + 1}")
                 continue
 
             pdf_failed = False
-            if http.download(pdf_url, out_pdf, min_bytes=100_000):
+            if http.download(pdf_url, out_pdf, min_bytes=100_000,
+                             validator=_pdf_ok):
                 try:
                     n = pdfbuild.pdf_page_count(out_pdf)
                     outputs.append(out_pdf)
@@ -247,9 +265,11 @@ class LocAdapter:
                         pass
                     errors.append(f"卷{i + 1}: PDF 校验失败 {e}")
                     pdf_failed = True
+                    missing.append(f"卷{i + 1}")
             else:
                 errors.append(f"卷{i + 1}: 官方 PDF 下载失败")
                 pdf_failed = True
+                missing.append(f"卷{i + 1}")
             if pdf_failed and quality == "auto" and pages:
                 # auto 兜底：官方 PDF 不可用 → 逐页组图（同 na_jp 语义）
                 n = _images("1600,")
@@ -259,6 +279,12 @@ class LocAdapter:
                     bytes_done += os.path.getsize(out_pdf)
                 else:
                     errors.append(f"卷{i + 1}: IIIF 组图兜底失败(0页)")
+                    missing.append(f"卷{i + 1}")
+
+        # 页数层面的缺页（IIIF 部分页失败）：assemble_pages_to_pdf 允许缺 2 页
+        # 仍出 PDF，但"整本页数 < 快照声明页数"说明没下全，也要记欠账。
+        if not missing and meta.page_count and pages_done < meta.page_count:
+            missing.append(f"页数 {pages_done}/{meta.page_count}")
 
         # 封面缩略图（网格展示用；失败不致命）
         cover_path = ""
@@ -270,9 +296,9 @@ class LocAdapter:
         # 成功语义（各馆统一）：有产出即 ok；缺卷/部分失败照常记 errors，
         # 靠页级断点续传在重跑时补齐，不把整条记录打成 failed 烧配额。
         result = DownloadResult(
-            ok=bool(outputs),
+            ok=bool(outputs) and pages_done > 0,
             outputs=outputs, pages=pages_done, bytes_done=bytes_done,
-            errors=errors)
+            errors=errors, missing=missing)
         write_meta_json(dest_dir, "loc", meta, result, started,
                         quality=quality,
                         extra={"alt_title": meta.alt_title,

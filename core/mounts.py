@@ -6,7 +6,6 @@
 导致数据"存在但不在文档路径"，且删容器/清理卷时有丢失风险。
 """
 
-import os
 from typing import Optional
 
 

@@ -11,7 +11,7 @@ import re
 import threading
 import time
 import hashlib
-from typing import Dict, Optional
+from typing import Callable, Dict, Optional
 
 import requests
 
@@ -151,25 +151,62 @@ class HttpClient:
         return None
 
     def download(self, url: str, dest: str, *, min_bytes: int = 1024,
-                 expected_bytes: Optional[int] = None) -> bool:
+                 expected_bytes: Optional[int] = None,
+                 validator: Optional[Callable[[str], bool]] = None) -> bool:
         """流式下载到 dest，支持 Range 续传。成功(且体积达标)返回 True。
 
-        完整性: 响应带 Content-Length / Content-Range 总长时，完成后必须
-        与之相等；响应未给总长（chunked）时，只有本轮迭代正常结束
-        （completed）才接受——连接中断的残片绝不算成功。
-        200 全量响应直接覆盖残片，杜绝 200/206 混拼导致的损坏。
-        dest 已存在且体积达标时直接跳过（失败重试不重复下载已完成卷/页）。
+        完整性证据链（三层，缺一层就不许判成功）:
+          1. 总长：响应带 Content-Length / Content-Range 时，完成后必须与之相等。
+             **每一轮重试都重新取总长（attempt_size），绝不复用上一轮的值**——
+             上一轮的值来自另一个响应，复用就会把两次响应的字节拼成
+             "长度刚好对得上"的错位文件（审查 A P0-2 实测：5000+4000 == 旧 9000）。
+          2. 迭代：响应未给总长（chunked）时，只有本轮迭代正常结束（completed）才接受。
+          3. 语义：validator（可选）在"已存在文件"与"下载完成"两处调用，由调用方判断
+             内容是否可读（如 PDF 能读出页数）。http 层不猜 PDF 语义。
+
+        dest 已存在时：体积达标 **且**（未传 validator 或 validator(dest) 为真）才跳过。
+        未传 validator 时与旧版行为一致（体积达标即跳过），保持向后兼容；
+        官方 PDF 这类"体积远小于整本"的目标必须传 validator（审查 A P0-1）。
         """
         if os.path.exists(dest) and os.path.getsize(dest) >= max(min_bytes, 1):
-            return True
+            # 体积达标 != 内容完整。validator 抛异常一律视为不可信（宁可重下），
+            # 不把异常抛给调用方——下载层的契约是"返回 bool"。
+            trusted = validator is None
+            if not trusted:
+                try:
+                    trusted = bool(validator(dest))
+                except Exception:
+                    trusted = False
+            if trusted:
+                return True
+            try:
+                os.remove(dest)      # 不可信的旧文件必须删，否则下次仍被它骗
+            except OSError:
+                pass
         part = dest + ".part"
         os.makedirs(os.path.dirname(dest) or ".", exist_ok=True)
-        full_size = expected_bytes
 
         def pump(f, r) -> None:
             for chunk in r.iter_content(chunk_size=1 << 20):
                 if chunk:
                     f.write(chunk)
+
+        def drop_part() -> None:
+            try:
+                os.remove(part)
+            except OSError:
+                pass
+
+        def accept(tmp: str) -> bool:
+            """提交前过 validator：长度对但内容不可读的，删掉重下而不是入库。"""
+            if validator is not None:
+                try:
+                    if not validator(tmp):
+                        return False
+                except Exception:
+                    return False
+            os.replace(tmp, dest)
+            return True
 
         for _ in range(1, self.attempts + 1):
             self.throttle.wait(url)
@@ -177,44 +214,59 @@ class HttpClient:
             if os.path.exists(part) and os.path.getsize(part) > 0:
                 headers["Range"] = f"bytes={os.path.getsize(part)}-"
             completed = False
+            # 本轮"可证明的总长"：None = 这一轮拿不到，不能据此判定完整性。
+            attempt_size: Optional[int] = expected_bytes
             try:
                 with self.session.get(url, timeout=min(self.timeout * 5, 600),
                                       headers=headers, stream=True) as r:
                     if r.status_code == 206:
                         m = re.search(r"/(\d+)\s*$",
                                       r.headers.get("Content-Range", ""))
-                        if m:
-                            full_size = int(m.group(1))
+                        if not m:
+                            # 拿不到远端总长还继续追加，就会拼出"长度对、内容错"的文件。
+                            # 丢残片、下一轮按全量重下（不带 Range）。
+                            drop_part()
+                            continue
+                        attempt_size = int(m.group(1))
+                        if os.path.exists(part) and os.path.getsize(part) >= attempt_size:
+                            drop_part()          # 残片已达该总长：不能再追加
+                            continue
                         with open(part, "ab") as f:
                             pump(f, r)
                         completed = True
                     elif r.status_code == 200:
                         clen = r.headers.get("Content-Length", "")
-                        if clen.isdigit():
-                            full_size = int(clen)
+                        attempt_size = int(clen) if clen.isdigit() else None
                         with open(part, "wb") as f:   # 覆盖残片全量重下
                             pump(f, r)
                         completed = True
                     elif r.status_code == 416:
-                        completed = True              # 残片已到全长，走下方校验
+                        # 416 只说"Range 越界"，不告诉总长。只有调用方给了 expected_bytes
+                        # 才能据此认账；否则任何 >= min_bytes 的残片都会被当成完整文件。
+                        if expected_bytes is None:
+                            drop_part()
+                            continue
+                        attempt_size = expected_bytes
                     else:
                         raise requests.HTTPError(f"HTTP {r.status_code}")
             except requests.RequestException:
                 pass
             size = os.path.getsize(part) if os.path.exists(part) else 0
-            if full_size is not None:
-                if size == full_size and size >= min_bytes:
-                    os.replace(part, dest)
+            if attempt_size is not None:
+                if size == attempt_size and size >= min_bytes:
+                    if accept(part):
+                        return True
+                    drop_part()
+                    continue
+                if size > attempt_size:
+                    # 超长残片：立刻清掉重来（旧版要等到下一轮才删，白耗一次机会）
+                    drop_part()
+                    continue
+            elif completed and size >= min_bytes:      # 无总长：仅收完整迭代
+                if accept(part):
                     return True
-                if size > full_size:                  # 残片异常，弃掉重来
-                    try:
-                        os.remove(part)
-                    except OSError:
-                        pass
-                    full_size = expected_bytes
-            elif completed and size >= min_bytes:     # 无总长：仅收完整迭代
-                os.replace(part, dest)
-                return True
+                drop_part()
+                continue
         return False
 
 

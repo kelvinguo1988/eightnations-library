@@ -144,7 +144,8 @@ class NaJpAdapter:
 
     # ---------------- 发现层（站点可直接访问，实时收割） ----------------
     def harvest_step(self, catalog_url: str, known_uids=None, budget: int = 40,
-                     max_pages: int = 15, on_meta=None) -> Dict[str, Any]:
+                     max_pages: int = 15, on_meta=None,
+                     start_page: int = 1) -> Dict[str, Any]:
         """增量收割一个心跳批次（防封禁设计）。
 
         限流节律假设：站点对"连续约 58 次请求"临时封禁（403/502），
@@ -156,36 +157,61 @@ class NaJpAdapter:
         其余防封禁语义：
           * 已在库的条目直接跳过详情请求（每周巡检几乎零请求）；
           * 列表页拿不到 = 已被限流：立即返回，不再对已收集 ids 发任何
-            详情请求（此前实现会继续打满 budget，加剧封禁）；
+            详情请求（此前实现继续打满 budget，加剧封禁）；
           * 连续 3 个条目详情失败视为被限流，立即中止并上报 blocked。
 
-        on_meta(meta) 逐条回调（调用方即时入库，中断不丢进度）。
-        返回 {ids, fetched, skipped, blocked, exhausted}。
+        exhausted 的严格定义（审查 C P0-4，修前是 `fetched < budget`）：
+          **翻页到底（列表页返回空） 且 本页/累计没有遗留的未知条目 且 未因
+          budget 截断 且 无详情失败遗漏**。修前只要"本轮没抓满预算"就算完成，
+          于是 3 件全已在库时会判 exhausted=True，scheduler 据此把该 fonds
+          封存 7 天 —— 而真实目录有 5268 件、每页 100 件，等于永远跑不完。
+
+        返回 {ids, fetched, skipped, blocked, exhausted, reached_end,
+              next_page, failed}：
+          reached_end  是否翻到了目录末尾（空页）
+          next_page    下一轮应从哪一页开始（budget/max_pages 截断时 >1；
+                       追平已翻过的页则回落为 1，避免永久跳页）
+          failed       本轮详情获取失败的条目数（>0 表示有遗漏，不可封存）
+
+        start_page 供调用方做"游标续传"（默认 1 = 每次从头扫，靠 known_uids 跳过）。
         """
         known = known_uids or set()
         ids: List[str] = []
         m = re.search(r"/fonds/(\d+)", catalog_url)
         fonds_id = m.group(1) if m else ""
-        for page in range(1, max_pages + 1):
-            url = catalog_url if (max_pages == 1 or not fonds_id) else \
-                f"{BASE}/fonds/{fonds_id}?page={page}"
+        reached_end = False
+        pages_scanned = 0
+        start = max(1, int(start_page or 1))
+        for page in range(start, start + max_pages):
+            if max_pages == 1 or not fonds_id:
+                url = catalog_url
+            else:
+                url = f"{BASE}/fonds/{fonds_id}?page={page}"
+            pages_scanned += 1
             html = self.http.get(url)
             if html is None:
                 # 列表页都拿不到：已被限流。立即收尾，详情一个都不发。
                 return {"ids": len(ids), "fetched": 0,
                         "skipped": len([i for i in ids if i in known]),
-                        "blocked": True, "exhausted": False}
+                        "blocked": True, "exhausted": False,
+                        "reached_end": False, "next_page": page, "failed": 0}
             new = [i for i in re.findall(r"/img/(\d+)", html) if i not in ids]
             if not new:
+                reached_end = True      # ← 空页 = 目录末尾（唯一的"到底"信号）
                 break
             ids.extend(new)
+            if max_pages == 1 or not fonds_id:
+                # 单页模式/无 fonds id：无法翻页，视作"只扫这一页"
+                break
         todo = [i for i in ids if i not in known]
-        fetched, fail_streak = 0, 0
+        fetched, fail_streak, failed = 0, 0, 0
         blocked = False
+        budget_hit = False
         for vid in todo:
             mf = _manifest(self.http, vid)
             if not mf or not mf.get("sequences"):
                 fail_streak += 1
+                failed += 1
                 if fail_streak >= 3:    # 连续失败 = 被限流，本轮到此为止
                     blocked = True
                     break
@@ -213,11 +239,24 @@ class NaJpAdapter:
                 on_meta(meta)
             fetched += 1
             if budget and fetched >= budget:
+                budget_hit = True
                 break
+        # 严格 exhausted：四个条件同时成立才允许 scheduler 封存目录
+        exhausted = (not blocked) and (not budget_hit) and reached_end \
+            and failed == 0
+        # next_page：因预算/翻页上限截断时，从"最后一个扫过的页"续；
+        # 若已翻到底或没做任何翻页，回落到 1（下轮从头扫，known_uids 会跳过已知）。
+        if reached_end or (max_pages == 1 or not fonds_id):
+            next_page = 1
+        else:
+            next_page = max(1, start + pages_scanned - 1) if budget_hit else 1
         return {"ids": len(ids), "fetched": fetched,
                 "skipped": len([i for i in ids if i in known]),
                 "blocked": blocked,
-                "exhausted": (not blocked) and fetched < (budget or 10 ** 9)}
+                "exhausted": exhausted,
+                "reached_end": reached_end,
+                "next_page": next_page,
+                "failed": failed}
 
     def parse_snapshot(self, payload: Any, collection_slug: str = ""
                        ) -> List[BookMeta]:
@@ -313,6 +352,7 @@ class NaJpAdapter:
             if mc:
                 vols.append((svid, mc, mf))
         outputs: List[str] = []
+        missing: List[str] = []
         if not vols:
             errors.append("manifest 无 cid（站点可能限流）")
         else:
@@ -321,6 +361,11 @@ class NaJpAdapter:
             if pages == 0:
                 pages, outputs = self._download_iiif(vols, dest_dir, http,
                                                      errors, progress)
+            # 缺卷判定：按"每个卷是否都有对应产出"对齐 _volume_names，
+            # 部分成功时如实上报（审查 A P1-2），让 pipeline 记欠账并排队尾补齐。
+            names = self._volume_names(vols) if vols else []
+            have = {os.path.basename(p) for p in outputs}
+            missing = [f"卷{i + 1}" for i, n in enumerate(names) if n not in have]
 
         # 官方通道失败后 IIIF 兜底成功时，errors 里是第一次尝试的告警，
         # 不应否定最终成功 → 以实际产出为准（成功语义与各馆统一，见 base）
@@ -328,26 +373,32 @@ class NaJpAdapter:
                                 outputs=outputs, pages=pages,
                                 bytes_done=sum(os.path.getsize(p)
                                                for p in outputs),
-                                errors=errors)
+                                errors=errors, missing=missing)
         write_meta_json(dest_dir, "na_jp", meta, result, started,
                         quality=quality)
         return result
 
     @staticmethod
     def _volume_names(vols: List[tuple]) -> List[str]:
-        """每卷一个 PDF 的命名：单卷沿用 book.pdf；多卷时父记录若仅 1 页
-        视为封面 cover.pdf，其余按序 book_01.pdf、book_02.pdf…"""
+        """每卷一个 PDF 的命名契约（统一为"阅读器可见"的名字）。
+
+        单卷：book.pdf
+        多卷：book_01.pdf … book_NN.pdf（按阅读顺序，含父记录的 1 页封面）
+
+        审查 C P0-2：旧实现在多卷时把"父记录仅 1 页"命名为 cover.pdf，但
+        下游只认 book.pdf / book_NN.pdf（web/app.py 的 book_urls、
+        pipeline.create_title_links 的识别正则、_title_link 甚至显式跳过
+        cover.pdf），结果**卷首（书名叶/封面/序）在阅读器里完全看不到**。
+        选择"改名"而非"让下游认 cover.pdf"，是因为：
+          * 下游识别规则只在一处维护（web 与 pipeline 共用同一正则语义），
+            改名后 web 侧零改动；
+          * 阅读顺序天然 = 卷号顺序，不需要"cover 要排在第 0 位"的特例；
+          * 老目录里已存在的 cover.pdf 会在重下时被 _cleanup_stale 清掉
+            （它不在新名单里），不会与新命名共存造成双份。
+        """
         if len(vols) == 1:
             return ["book.pdf"]
-        names, seq = [], 0
-        for i, v in enumerate(vols):
-            cids = v[1]
-            if i == 0 and len(cids) == 1:
-                names.append("cover.pdf")
-            else:
-                seq += 1
-                names.append(f"book_{seq:02d}.pdf")
-        return names
+        return [f"book_{i + 1:02d}.pdf" for i in range(len(vols))]
 
     @staticmethod
     def _cleanup_stale(dest_dir: str, names: List[str]) -> None:
@@ -368,13 +419,21 @@ class NaJpAdapter:
                            progress: Optional[Progress]):
         """官方 contentDownload 分块下载，每卷合并写入独立 PDF。
 
-        vols = [(vid, cids, manifest), ...]；返回 (总页数, 产出路径)，页数 0=失败。
+        vols = [(vid, cids, manifest), ...]；返回 (总页数, 产出路径)。
+        页数 0 只在"一卷都没成"时出现；部分卷成功时照实上报已完成的卷
+        （审查 C P0-1：旧实现失败即 return 0, []，磁盘上却留着已写出的卷 PDF，
+        下一次重试会把它当"已完成卷"跳过，等于把孤儿文件洗白成正常产出）。
+
+        事务语义（每卷独立）：
+          * 块临时文件放 tmpdir，按"本卷"计数，卷间绝不共用 parts；
+          * 本卷所有块齐了才合并，且先写 out.part 再 os.replace（原子）；
+          * 合并成功后才 append 到 outputs —— outputs 与磁盘内容严格一致。
         """
         from pypdf import PdfReader, PdfWriter
         names = self._volume_names(vols)
         total_cids = sum(len(c) for _, c, _ in vols)
         tmpdir = tempfile.mkdtemp(prefix="najp_")
-        parts: List[str] = []
+        vol_parts: List[str] = []          # 当前卷的块（每卷清空）
         outputs: List[str] = []
         total = 0
         try:
@@ -398,6 +457,8 @@ class NaJpAdapter:
                     except OSError:
                         pass
                 chunks = [cids[i:i + CHUNK] for i in range(0, len(cids), CHUNK)]
+                vol_parts = []             # ← 每卷独立：防止上一卷残留块混入本卷
+                vol_failed = False
                 for ci, ch in enumerate(chunks, 1):
                     ok = False
                     for att in range(1, MAX_ATTEMPTS + 1):
@@ -409,42 +470,58 @@ class NaJpAdapter:
                                 f.write(data)
                             try:
                                 if len(PdfReader(tp).pages) == len(ch):
-                                    parts.append(tp)
+                                    vol_parts.append(tp)
                                     ok = True
                                     break
                             except Exception:
                                 pass
                         time.sleep(min(8 * att, 60))
+                        if att < MAX_ATTEMPTS:
+                            continue
                     if not ok:
                         errors.append(f"卷{vi}({vid}) 块{ci}/{len(chunks)} 下载失败")
-                        return 0, []
+                        vol_failed = True
+                        break             # 只放弃本卷，已完成的卷照样上报
                     if progress:
                         progress.tick(len(ch), total_cids)
-                # 本卷各块齐了 → 写独立卷 PDF
-                if parts:
-                    w = PdfWriter()
-                    vol_total = 0
-                    for p in parts:
-                        rd = PdfReader(p)
-                        for pg in rd.pages:
-                            w.add_page(pg)
-                        vol_total += len(rd.pages)
-                    with open(out, "wb") as f:
-                        w.write(f)
-                    outputs.append(out)
-                    total += vol_total
-                    if vol_total != len(cids):
-                        errors.append(f"warn: 卷{vi} 合并页数 {vol_total} != cid数 {len(cids)}")
-                    for p in parts:
+                if vol_failed:
+                    # 本卷块不全：临时块全部丢弃（不合并、不产出），继续下一卷
+                    for p in vol_parts:
                         try:
                             os.remove(p)
                         except OSError:
                             pass
-                    parts = []
-            self._cleanup_stale(dest_dir, names)
+                    vol_parts = []
+                    continue
+                # 本卷各块齐了才合并；块数必须与 chunks 数相等，否则说明有块漏收
+                if vol_parts and len(vol_parts) == len(chunks):
+                    w = PdfWriter()
+                    vol_total = 0
+                    for p in vol_parts:
+                        rd = PdfReader(p)
+                        for pg in rd.pages:
+                            w.add_page(pg)
+                        vol_total += len(rd.pages)
+                    # 原子写：中途崩溃不留"看起来完整"的半成品卷
+                    tmp_out = out + ".part"
+                    with open(tmp_out, "wb") as f:
+                        w.write(f)
+                    os.replace(tmp_out, out)
+                    outputs.append(out)        # 写完才登记，outputs 与磁盘一致
+                    total += vol_total
+                    if vol_total != len(cids):
+                        errors.append(f"warn: 卷{vi} 合并页数 {vol_total} != cid数 {len(cids)}")
+                for p in vol_parts:
+                    try:
+                        os.remove(p)
+                    except OSError:
+                        pass
+                vol_parts = []
+            if outputs:
+                self._cleanup_stale(dest_dir, names)
             return total, outputs
         finally:
-            for p in parts:
+            for p in vol_parts:
                 try:
                     os.remove(p)
                 except OSError:

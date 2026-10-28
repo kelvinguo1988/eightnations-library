@@ -9,13 +9,15 @@ import re
 import time
 from typing import Optional
 
+from core.db import MAX_ATTEMPTS
 from core.http import HttpClient
 from core.text import jp2t
 from core.limiter import Progress
 from core.models import BookMeta, DownloadResult
 from sites import get_adapter
 
-MAX_ATTEMPTS = 5
+# 重试上限统一放在 core/db.py（claim_and_start 的 SQL 里要用它做原子判定）。
+# 这里保留同名导入，便于日志与旧代码引用；不要再本地硬编码第二份数字。
 BOOKS_DIR = os.path.join(
     os.environ.get("EIGHTNATIONS_DATA",
                    os.path.join(os.path.dirname(os.path.dirname(
@@ -111,7 +113,14 @@ def _title_link(dest_dir: str, output: str, meta: BookMeta,
 
 
 def fetch_one(d, row, quality: str, quota_n: Optional[int] = None) -> bool:
-    """下载单本。返回 False 表示配额用尽，调用方应结束本轮。"""
+    """下载单本。返回 False 表示配额用尽，调用方应结束本轮。
+
+    状态语义（审查 A P1-2 / P0-3）：
+      * 齐全          → done（needs_topup=0）
+      * 部分完成      → done + needs_topup=1（可读、且会被队尾补位自动补齐）
+      * 失败（可重试）→ failed（attempt+1；到上限转 dead）
+      * 失败（已死）  → dead（需人工 force / reset_attempt 才能再跑）
+    """
     src = row["source_id"]
     try:
         dest = _dest_dir(src, row["collection"], row["source_uid"])
@@ -127,10 +136,20 @@ def fetch_one(d, row, quality: str, quota_n: Optional[int] = None) -> bool:
         if quota_full:
             d.log("达到每小时配额，停止本轮", source=src)
             return False
-        return True       # 已被其他执行方认领：跳过
-    adapter = get_adapter(src, HttpClient())
-    http = adapter.http if hasattr(adapter, "http") else HttpClient()
-    meta = row_to_meta(row)
+        return True       # 已被其他执行方认领/已达重试上限：跳过
+    try:
+        adapter = get_adapter(src, HttpClient())
+        http = adapter.http if hasattr(adapter, "http") else HttpClient()
+        meta = row_to_meta(row)
+    except Exception as e:
+        # 认领之后、下载之前的任何异常（未注册适配器 / 坏 JSON / 写库失败）
+        # 都必须收尾，否则这本书永远停在 running，只能等 60 分钟租约回收
+        # （审查 A P1-7）。
+        msg = f"准备阶段失败: {e!r}"
+        d.finish_job(job, "failed", 0, 0, 0, [], msg[:500])
+        d.set_status(row["id"], "failed", error=msg[:500])
+        d.log(msg, level="error", source=src, book_id=row["id"])
+        return True
     d.log(f"开始下载: {meta.alt_title or meta.title}", source=src, book_id=row["id"])
 
     last_beat = [0.0]
@@ -149,24 +168,40 @@ def fetch_one(d, row, quality: str, quota_n: Optional[int] = None) -> bool:
                                        Progress(callback=on_progress))
     except Exception as e:
         result = DownloadResult(ok=False, errors=[f"适配器异常: {e}"])
-    if result.ok:
-        d.finish_job(job, "done", result.pages,
-                     max(meta.page_count, result.pages),
-                     result.bytes_done, result.outputs)
-        d.update_download_info(row["id"], os.path.join(dest, "cover.jpg"),
-                               result.pages)
+    total_pages = max(meta.page_count, result.pages)
+    if result.ok and result.pages > 0:
+        # 封面是否真的写出来了（各馆封面失败不致命，旧代码无条件写路径，
+        # 会让 UI 指向不存在的文件）
+        cover = os.path.join(dest, "cover.jpg")
+        d.update_download_info(row["id"], cover if os.path.exists(cover) else "",
+                               total_pages, result.pages)
+        if result.missing:
+            # 部分完成：已归档部分可读（done），同时打欠账标记等下轮补位
+            d.record_partial(row["id"], job, result.pages, total_pages,
+                             result.bytes_done, result.outputs, result.missing,
+                             "; ".join(result.errors))
+            for i, out in enumerate(result.outputs, 1):
+                _title_link(dest, out, meta, i, len(result.outputs))
+            d.log(f"部分完成: {result.pages}/{total_pages} 页，缺 "
+                  f"{','.join(result.missing[:5])}；已排队尾自动补齐",
+                  level="warn", source=src, book_id=row["id"])
+            return True
+        d.record_done(row["id"], job, result.pages, total_pages,
+                      result.bytes_done, result.outputs)
         for i, out in enumerate(result.outputs, 1):
             _title_link(dest, out, meta, i, len(result.outputs))
-        d.set_status(row["id"], "done")
         d.log(f"完成: {result.pages} 页 / {result.bytes_done / 1e6:.1f} MB "
               f"-> {dest}", source=src, book_id=row["id"])
         return True
     msg = "; ".join(result.errors) or "unknown"
-    attempts = row["attempt"] + 1
+    if result.ok and result.pages == 0:
+        msg = "有产出但 0 页（视为失败）; " + msg
+    # 用 DB 里的真实 attempt（认领时已 +1），不要用入参 row 的旧快照：
+    # 旧快照在"人工重试重置过 attempt"后会给出错误的次数（审查 A P0-3）。
+    attempts = d.book_attempt(row["id"])
     new_status = "dead" if attempts >= MAX_ATTEMPTS else "failed"
-    d.finish_job(job, "failed", result.pages,
-                 max(meta.page_count, result.pages),
-                 result.bytes_done, result.outputs, msg)
+    d.finish_job(job, "failed", result.pages, total_pages,
+                 result.bytes_done, result.outputs, msg[:500])
     d.set_status(row["id"], new_status, error=msg[:500])
     d.log(f"失败({attempts}/{MAX_ATTEMPTS}): {msg}", level="warn",
           source=src, book_id=row["id"])

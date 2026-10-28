@@ -55,6 +55,20 @@ def run_checks(d, books_dir: str, data_dir: str,
         + (f"；缺失 {len(missing_pdf)}: {missing_pdf[:3]}"
            if missing_pdf else ""))
 
+    # 2b) 欠卷账簿：部分完成（status=done 但 needs_topup=1）的书
+    # 审查 A P1-2 / 批 2 C1：这类书已归档可读、但还缺卷/页，由调度器的
+    # "队尾补位"通道自动补齐。数量长期不降说明对应书目一直补不齐
+    # （源站没有该卷/始终失败），需要人工看 last_error，故单独列一项。
+    with d.connect() as conn:
+        topup = conn.execute(
+            "SELECT id, source_id, source_uid, last_error FROM books "
+            "WHERE status='done' AND needs_topup=1 ORDER BY id").fetchall()
+    add("部分完成待补齐", True,
+        "无欠卷" if not topup else
+        f"{len(topup)} 册有待补卷/页（队尾自动补齐中）："
+        + "; ".join(f"#{r['id']} {r['source_id']}/{r['source_uid']}"
+                    f"（{(r['last_error'] or '')[:40]}）" for r in topup[:3]))
+
     # 3) 磁盘孤儿目录（有 meta.json 但库里无记录）
     orphans = []
     if os.path.isdir(books_dir):
@@ -81,7 +95,7 @@ def run_checks(d, books_dir: str, data_dir: str,
         else f"已启用的 direct 站点缺目录 URL: {bad_cfg}")
 
     # 5) 数据目录挂载来源（匿名卷 → 迁移警告）
-    from core.mounts import data_mount, migration_commands
+    from core.mounts import data_mount
     m = data_mount()
     if m["kind"] == "bind":
         add("数据目录挂载", True, f"已绑定宿主机固定路径：{m['source']}")

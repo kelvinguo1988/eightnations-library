@@ -25,7 +25,9 @@ CREATE TABLE IF NOT EXISTS sources(
   quality TEXT NOT NULL DEFAULT 'auto',      -- auto/pdf/orig/mid/thumb
   meta_strategy TEXT NOT NULL DEFAULT 'snapshot',
   catalog_url TEXT DEFAULT '',               -- direct 策略: 目录页 URL（自动收割）
-  last_catalog_at TEXT DEFAULT ''            -- 上次收割时间（7 天巡检）
+  last_catalog_at TEXT DEFAULT '',           -- 上次收割时间（7 天巡检）
+  last_blocked_at TEXT DEFAULT '',           -- 限流冷却到期时刻（跨重启持久）
+  catalog_cursor INTEGER DEFAULT 1            -- 目录翻页游标（下次从第几页继续）
 );
 CREATE TABLE IF NOT EXISTS books(
   id INTEGER PRIMARY KEY,
@@ -51,6 +53,7 @@ CREATE TABLE IF NOT EXISTS books(
   raw_json TEXT DEFAULT '{}',
   status TEXT NOT NULL DEFAULT 'discovered',
   attempt INTEGER NOT NULL DEFAULT 0,
+  needs_topup INTEGER NOT NULL DEFAULT 0,   -- 1=部分卷/页缺，等补齐（status 仍可为 done）
   last_error TEXT DEFAULT '',
   added_at TEXT NOT NULL,
   decided_at TEXT DEFAULT '',
@@ -120,6 +123,13 @@ _DEFAULT_SOURCES = [
 ]
 
 
+# 同一本书的最大重试次数（失败计数）。放在 db 层是因为上限必须在
+# claim_and_start 的 UPDATE ... AND attempt < ? 里原子生效；
+# pipeline 只引用它做日志，不再各自定义（避免两处数字漂移）。
+# 注意：sites/na_jp.py 里的 MAX_ATTEMPTS=8 是**块级**重试，与此无关。
+MAX_ATTEMPTS = 5
+
+
 def utcnow() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
@@ -141,15 +151,29 @@ class DB:
     @contextmanager
     def _immediate(self):
         """显式写事务（BEGIN IMMEDIATE）：跨进程互斥，供认领/回收等
-        读-改-写序列使用，避免两进程同时走 INSERT 分支的竞态。"""
+        读-改-写序列使用，避免两进程同时走 INSERT 分支的竞态。
+
+        回滚保护（审查 A P1-5）：只有 BEGIN **成功之后**才回滚，且回滚本身
+        出错绝不再抛——否则 "BEGIN IMMEDIATE" 因锁竞争失败时，except 分支里
+        的 ROLLBACK 会抛 "cannot rollback - no transaction is active"，把真正的
+        "database is locked" 覆盖掉，运维按日志根本查不到真因。
+        """
         conn = self.connect()
         conn.isolation_level = None
+        began = False
         try:
             conn.execute("BEGIN IMMEDIATE")
+            began = True
             yield conn
             conn.execute("COMMIT")
-        except Exception:
-            conn.execute("ROLLBACK")
+        except BaseException:
+            # BaseException：KeyboardInterrupt/SystemExit 也必须回滚后再抛，
+            # 但同样不能让回滚失败掩盖原始异常。
+            if began:
+                try:
+                    conn.execute("ROLLBACK")
+                except sqlite3.Error:
+                    pass        # 原始异常优先，回滚失败只是"没有事务可回滚"
             raise
         finally:
             conn.close()
@@ -164,11 +188,26 @@ class DB:
                 conn.execute("ALTER TABLE sources ADD COLUMN catalog_url TEXT DEFAULT ''")
             if "last_catalog_at" not in cols:
                 conn.execute("ALTER TABLE sources ADD COLUMN last_catalog_at TEXT DEFAULT ''")
+            if "last_blocked_at" not in cols:
+                # 老库补列：冷却态持久化（审查 C P1-2）。默认空 = 未限流，
+                # 与既有行为一致，不会让任何老数据被"冷却"。
+                conn.execute("ALTER TABLE sources ADD COLUMN "
+                             "last_blocked_at TEXT DEFAULT ''")
+            if "catalog_cursor" not in cols:
+                # 老库补列：目录翻页游标（审查 C P0-4 配套）。默认 1 = 从头，
+                # 与旧行为一致（旧实现每轮都从第 1 页扫）。
+                conn.execute("ALTER TABLE sources ADD COLUMN "
+                             "catalog_cursor INTEGER DEFAULT 1")
             bcols = {r["name"] for r in conn.execute("PRAGMA table_info(books)")}
             if "subjects" not in bcols:
                 conn.execute("ALTER TABLE books ADD COLUMN subjects TEXT DEFAULT '[]'")
             if "favorite" not in bcols:
                 conn.execute("ALTER TABLE books ADD COLUMN favorite INTEGER DEFAULT 0")
+            if "needs_topup" not in bcols:
+                # 老库补列：默认 0 = 不欠账（审查 A P1-2 的补齐标记，
+                # 不动既有 done 数据的语义，48 册历史数据行为完全不变）
+                conn.execute("ALTER TABLE books ADD COLUMN "
+                             "needs_topup INTEGER NOT NULL DEFAULT 0")
             pcols = {r["name"] for r in conn.execute("PRAGMA table_info(reading_progress)")}
             if pcols and "theme" not in pcols:
                 conn.execute("ALTER TABLE reading_progress ADD COLUMN theme TEXT DEFAULT 'light'")
@@ -283,6 +322,29 @@ class DB:
         with self._lock, self.connect() as conn:
             conn.execute("UPDATE sources SET last_catalog_at=? WHERE id=?",
                          (utcnow(), source_id))
+        self.set_catalog_cursor(source_id, 1)     # 封存：下轮从头巡检
+
+    def get_catalog_cursor(self, source_id: str) -> int:
+        """目录翻页游标（下次从第几页继续）。老库/缺列时回落 1。"""
+        try:
+            with self.connect() as conn:
+                row = conn.execute("SELECT catalog_cursor FROM sources "
+                                   "WHERE id=?", (source_id,)).fetchone()
+            v = int((row["catalog_cursor"] if row else 1) or 1)
+            return max(1, v)
+        except (sqlite3.Error, TypeError, ValueError):
+            return 1
+
+    def set_catalog_cursor(self, source_id: str, page: int) -> None:
+        """持久化翻页游标：容器重启后不必从第 1 页重扫（审查 C P0-4）。
+
+        这是"翻到最后一页"这条长路径的唯一可靠进度载体——旧实现只靠
+        last_catalog_at 的 7 天过期信号，所以 5268 件的目录每 7 天只处理
+        预算内的前 40 件，永远跑不完。
+        """
+        with self._lock, self.connect() as conn:
+            conn.execute("UPDATE sources SET catalog_cursor=? WHERE id=?",
+                         (max(1, int(page)), source_id))
 
     # ---- books ----
     @staticmethod
@@ -449,7 +511,15 @@ class DB:
             return {r["status"]: r["n"] for r in conn.execute(sql, args)}
 
     def set_status(self, book_id: int, status: str, error: str = "",
-                   bump_attempt: bool = False) -> None:
+                   bump_attempt: bool = False,
+                   reset_attempt: bool = False) -> None:
+        """改状态（人工决策/管理入口）。
+
+        reset_attempt=True：把 attempt 归零（人工"重试"语义）。
+        审查 A P0-3：attempt 上限已下沉到 claim_and_start 的 SQL，dead 需要
+        显式 force 才能再认领；人工重试走 set_status(queued, reset_attempt=True)
+        把这本书当"新任务"，否则它永远卡在上限之外。
+        """
         sets = ["status=?", "last_error=?"]
         args: List[Any] = [status, error]
         if status in ("queued", "ignored"):
@@ -460,6 +530,8 @@ class DB:
             args.append(utcnow())
         if bump_attempt:
             sets.append("attempt=attempt+1")
+        if reset_attempt:
+            sets.append("attempt=0")     # 人工重试：从零开始计次
         args.append(book_id)
         with self._lock, self.connect() as conn:
             conn.execute(f"UPDATE books SET {','.join(sets)} WHERE id=?", args)
@@ -474,21 +546,39 @@ class DB:
         return claimed
 
     def claim_and_start(self, book_id: int, quality: str,
-                        quota_limit: Optional[int] = None) -> tuple:
+                        quota_limit: Optional[int] = None,
+                        force: bool = False) -> tuple:
         """认领 + 建 job 同一写事务（不留下"running 但无 job"的孤儿窗口）。
 
         每小时配额以 jobs.started_at 为账本（跨进程共享，落库持久），
         在认领事务内计数，检查与消费原子完成。
 
-        返回 (job_id, quota_full, claimed)。
+        认领准入（审查 A P0-3）：
+          * queued / failed：可认领；
+          * dead：**只有在 force=True 时**才可认领。dead 是"已放弃，需人工介入"
+            的语义；修前它与 failed 一样随时可认领，配合 Web「重试」可以无限
+            重跑（实测 25 次、attempt 25），每次都消耗该馆每小时配额。
+          * attempt 已达上限的书一律不再认领（上限判断下沉到 UPDATE 的 WHERE，
+            与状态迁移在同一原子语句里完成，跨进程也安全）。
+
+        返回 (job_id, quota_full, claimed)。第 4 个值 attempts 通过
+        `claim_and_start(...)` 的返回元组保持 3 元不变（兼容旧调用），
+        认领后的真实 attempt 请用 `book_attempt(book_id)` 读取。
         """
         cutoff = (datetime.now(timezone.utc) -
                   timedelta(hours=1)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        allowed = ("queued", "failed", "dead") if force else ("queued", "failed")
         with self._lock, self._immediate() as conn:
             row = conn.execute(
-                "SELECT status, source_id FROM books WHERE id=?",
+                "SELECT status, source_id, needs_topup FROM books WHERE id=?",
                 (book_id,)).fetchone()
-            if not row or row["status"] not in ("queued", "failed", "dead"):
+            if not row:
+                return None, False, False
+            # needs_topup=1 的 done 书是"已归档但欠卷"：允许认领以补齐
+            # （审查 A P1-2）。它的 status 仍是 done，所以要与 allowed 分开判，
+            # 且不受 attempt 上限约束（补齐不是"重试失败的书"）。
+            topup = bool(row["needs_topup"]) and row["status"] == "done"
+            if row["status"] not in allowed and not topup:
                 return None, False, False
             if quota_limit is not None:
                 used = conn.execute(
@@ -497,10 +587,18 @@ class DB:
                     (row["source_id"], cutoff)).fetchone()["n"]
                 if used >= quota_limit:
                     return None, True, False
-            cur = conn.execute(
-                "UPDATE books SET status='running', attempt=attempt+1 "
-                "WHERE id=? AND status IN ('queued','failed','dead')",
-                (book_id,))
+            # attempt 上限写进 WHERE：跨进程原子，且"状态可认领 + 未超上限"一次判定。
+            # 补齐路径（done+needs_topup）不递增 attempt、不设上限。
+            if topup:
+                cur = conn.execute(
+                    "UPDATE books SET status='running', needs_topup=0 "
+                    "WHERE id=? AND status='done' AND needs_topup=1", (book_id,))
+            else:
+                cur = conn.execute(
+                    "UPDATE books SET status='running', attempt=attempt+1 "
+                    "WHERE id=? AND status IN (%s) AND attempt < ?"
+                    % ",".join("?" * len(allowed)),
+                    (book_id, *allowed, MAX_ATTEMPTS))
             if not cur.rowcount:
                 return None, False, False
             job = conn.execute(
@@ -509,6 +607,13 @@ class DB:
                 (book_id, "running", quality, utcnow(), os.getpid()))
             return int(job.lastrowid), False, True
 
+    def book_attempt(self, book_id: int) -> int:
+        """读认领后的真实 attempt（失败计数用它，不要用认领前的 row 快照）。"""
+        with self.connect() as conn:
+            row = conn.execute("SELECT attempt FROM books WHERE id=?",
+                               (book_id,)).fetchone()
+        return int(row["attempt"]) if row else 0
+
     def job_heartbeat(self, job_id: int) -> None:
         """下载进行中续约租约（reap 以此判活）。"""
         with self._lock, self.connect() as conn:
@@ -516,16 +621,81 @@ class DB:
                          (utcnow(), job_id))
 
     def update_download_info(self, book_id: int, cover_path: str,
-                             page_count: int) -> None:
-        with self._lock, self.connect() as conn:
-            conn.execute("UPDATE books SET cover_path=?, page_count=? WHERE id=?",
-                         (cover_path, page_count, book_id))
+                             page_count: int, pages_done: int = 0) -> None:
+        """写封面路径与页数。
 
-    def queued_books(self, source_id: str, limit: int) -> List[sqlite3.Row]:
+        page_count 保留"更大的那个"（审查 C P1 / A C4）：快照里的
+        catalog page_count 是整本的权威值，下载层可能因弱成功只拿到一部分，
+        直接覆盖会让"这本书到底多少页"变小。只有本次确实拿到更多页时才更新。
+        """
+        with self._lock, self.connect() as conn:
+            conn.execute(
+                "UPDATE books SET cover_path=?, "
+                "page_count=MAX(COALESCE(page_count,0), ?) WHERE id=?",
+                (cover_path, max(page_count, pages_done, 0), book_id))
+
+    def queued_books(self, source_id: str, limit: int,
+                     include_topup: bool = True) -> List[sqlite3.Row]:
+        """取本轮要下载的书：先正常 queued，再补位"部分完成待补齐"的书。
+
+        审查 A P1-2：部分卷成功后旧实现直接置 done 并离开队列，缺卷永远
+        没人补。修法**不新增状态**（done 的语义/UI/查询口径全部保持），
+        而是给 needs_topup=1 的 done 书保留一条"队尾补位"通道：
+          * 排在真正 queued 之后，不抢占新书的配额；
+          * 每个源每轮最多补 limit//2 册（避免欠账书把队列堵死）；
+          * 补齐成功后 needs_topup 归 0，自然退出队列。
+        """
         with self.connect() as conn:
-            return conn.execute(
+            rows = conn.execute(
                 "SELECT * FROM books WHERE source_id=? AND status='queued' "
                 "ORDER BY id LIMIT ?", (source_id, limit)).fetchall()
+            if not include_topup or len(rows) >= limit:
+                return rows
+            room = min(limit - len(rows), max(1, limit // 2))
+            topup = conn.execute(
+                "SELECT * FROM books WHERE source_id=? AND status='done' "
+                "AND needs_topup=1 ORDER BY finished_at, id LIMIT ?",
+                (source_id, room)).fetchall()
+            return list(rows) + list(topup)
+
+    def record_done(self, book_id: int, job_id: int, pages: int, total: int,
+                    bytes_done: int, outputs: List[str]) -> None:
+        """全部卷/页齐全：done + 清欠账标记（同一事务，避免 states 不一致）。"""
+        with self._lock, self._immediate() as conn:
+            conn.execute(
+                "UPDATE jobs SET state='done',pages_done=?,pages_total=?,"
+                "bytes_done=?,outputs=?,last_error='',finished_at=? WHERE id=?",
+                (pages, total, bytes_done,
+                 json.dumps(outputs, ensure_ascii=False), utcnow(), job_id))
+            conn.execute(
+                "UPDATE books SET status='done',needs_topup=0,last_error='',"
+                "finished_at=? WHERE id=?", (utcnow(), book_id))
+
+    def record_partial(self, book_id: int, job_id: int, pages: int, total: int,
+                       bytes_done: int, outputs: List[str],
+                       missing: List[str], error: str = "") -> None:
+        """部分完成：**记 done（已归档部分可读）+ needs_topup=1（欠账待补）**。
+
+        为什么不新增 partial 状态：
+          * done 被 web/app.py 书架、/explore、favorite、doctor 对账等 8 处
+            直接按字符串查询；新增状态会让这些已归档的书在 UI 上"消失"，
+            必须同步改 web/ 才能不掉数据，改动面是现在的 3 倍；
+          * 老库 42 册 done 的语义（"可阅读的已归档书"）与"部分完成"其实一致：
+            用户需要的是**能读 + 之后会自己补齐**，而不是两种互斥状态。
+        所以用"状态不变 + 欠账标记"表达，补齐成功后 needs_topup 归 0。
+        attempt 不递增：部分成功不是失败，不该消耗重试次数。
+        """
+        note = "部分完成待补: " + ("; ".join(missing) if missing else (error or "未知"))
+        with self._lock, self._immediate() as conn:
+            conn.execute(
+                "UPDATE jobs SET state='done',pages_done=?,pages_total=?,"
+                "bytes_done=?,outputs=?,last_error=?,finished_at=? WHERE id=?",
+                (pages, total, bytes_done,
+                 json.dumps(outputs, ensure_ascii=False), note[:500],
+                 utcnow(), job_id))
+            conn.execute(
+                "UPDATE books SET status='done',needs_topup=1,last_error=? "
+                "WHERE id=?", (note[:500], book_id))
 
     # ---- jobs / events ----
     def start_job(self, book_id: int, quality: str) -> int:

@@ -36,3 +36,7 @@ class DownloadResult:
     pages: int = 0
     bytes_done: int = 0
     errors: List[str] = field(default_factory=list)
+    # 缺哪些卷/页（可读描述，如 ["卷2", "卷3"]）。由适配器如实上报：
+    # ok=True 但 missing 非空 = 部分完成，pipeline 会记为 done + 欠账待补
+    # （books.needs_topup=1），而不是"完全成功"（审查 A P1-2）。
+    missing: List[str] = field(default_factory=list)

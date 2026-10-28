@@ -36,8 +36,14 @@ class SourceAdapter(Protocol):
         quality: auto(官方PDF优先,否则1600px组图) / pdf / orig / mid / thumb
         dest_dir 内产出: book.pdf(或 vol_NN.pdf) + cover.jpg + meta.json
         页级断点续传: 已存在且达标的目标文件跳过。
-        成功语义（各馆统一）: 有产出即 ok=True；缺卷/部分失败记入
-        result.errors（进 meta.json 与日志），由断点续传补齐。
+        成功语义（各馆统一，审查 A P1-2 修订）:
+          * ok=True 且 missing 为空  → 完全成功，pipeline 记 done；
+          * ok=True 但 missing 非空  → **部分完成**：已归档部分可读，pipeline
+            会记 done + books.needs_topup=1，下一轮从队尾补位自动补齐缺卷；
+          * ok=False → 失败，计入 attempt（到 MAX_ATTEMPTS 转 dead）。
+        missing 用可读描述（如 ["卷2", "卷3"] 或 ["页数 80/120"]），
+        由各馆在"某些卷/页没做成但另有产出"时如实上报——**不要**把缺失
+        只塞进 errors 就算完，那会让缺卷永远没人补。
         """
         ...
 
@@ -54,7 +60,10 @@ class HarvestAdapter(Protocol):
         条目跳过（每周巡检近乎零详情请求）；
       * 触发站点限流时置 blocked=True 立即收尾上报，调用方安排冷却续传；
       * 返回值必须含 {ids, fetched, skipped, blocked, exhausted}；
-        exhausted=True 表示目录已全量处理完（scheduler 据此标记收割时间）；
+        `exhausted=True` 必须严格表示"翻到目录最后一页 且 没有因预算截断
+        且 没有遗漏条目"（审查 C P0-4：旧实现把它写成"本轮没抓满预算"，
+        导致 3 条全已在库时就把 5268 件的目录封存 7 天）；
+        可选扩展键 reached_end / next_page / failed 供调度器做续扫与诊断；
       * 本轮请求总数（列表页 + 详情）必须与站点限流线自洽，假设写在各馆
         harvest_step docstring。
     """
