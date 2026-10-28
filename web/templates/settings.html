@@ -58,22 +58,38 @@
              style="width:100%;margin-top:6px;background:var(--panel2);border:1px solid var(--line);color:var(--tx);border-radius:6px;padding:7px 10px;font-size:13px">
     </label>
   </div>
-  {% if s['meta_strategy'] == 'snapshot' %}
-  <div style="margin-top:14px">
-    <form method="post" action="/upload-snapshot" enctype="multipart/form-data"
-          style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
-      <input type="hidden" name="source" value="{{ s['id'] }}">
-      <input type="file" name="files" multiple accept=".json" required
-             style="color:var(--tx2);font-size:13px">
-      <button class="btn primary" type="submit">导入快照 JSON</button>
-      <span class="mut">支持 collection_*.json 与 item_*.json 多选；由 tools/loc_snapshot.py 产出或浏览器另存</span>
-    </form>
-  </div>
-  {% endif %}
+  {# 快照上传**不能**放在这里：它需要自己的 <form action="/upload-snapshot">，
+     而这一段位于外层 /settings 表单内部，放进去就是 form 嵌套（HTML 解析错误：
+     浏览器会忽略内层 <form> 起始标签，它的 </form> 又会提前关闭外层，导致
+     后面的 enabled_*/quota_* 全部脱钩，「保存设置」不提交这些字段——这正是
+     本次要修的原始 bug）。上传区块统一移到本文件末尾、/settings 表单闭合之后。 #}
 </div>
 {% endfor %}
 <button class="btn primary" type="submit">保存设置</button>
 </form>
+
+{# ---------------- 快照上传（独立于 /settings 表单，零嵌套） ----------------
+   snapshot 策略的馆走这条自助通道。之所以单独成段而不是嵌在每馆卡片里：
+   ① 结构上必须避免 form 嵌套；② 上传本来就是"整页之外的一次性动作"，
+   集中列出更清楚。每馆一个 form，控件直接写在 form 内，不用 form= 远程关联，
+   也不依赖任何浏览器纠错行为。 #}
+{% set snapshot_sources = sources | selectattr('meta_strategy', 'equalto', 'snapshot') | list %}
+{% if snapshot_sources %}
+<h2 style="font-size:16px;margin-top:26px">导入目录快照</h2>
+<div class="src-card">
+  {% for s in snapshot_sources %}
+  <form method="post" action="/upload-snapshot" enctype="multipart/form-data"
+        style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;padding:8px 0{% if not loop.last %};border-bottom:1px dashed var(--line){% endif %}">
+    <input type="hidden" name="source" value="{{ s['id'] }}">
+    <span class="mut" style="min-width:120px">{{ s['flag'] }} {{ s['name'] }}</span>
+    <input type="file" name="files" multiple accept=".json" required
+           style="color:var(--tx2);font-size:13px">
+    <button class="btn primary" type="submit">导入快照 JSON</button>
+  </form>
+  {% endfor %}
+  <div class="mut" style="margin-top:10px">支持 collection_*.json 与 item_*.json 多选；由 tools/loc_snapshot.py 产出或浏览器另存</div>
+</div>
+{% endif %}
 
 <div class="src-card" style="margin-top:26px">
   <div class="hd">采集约定</div>

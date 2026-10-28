@@ -36,6 +36,10 @@ async function init() {
     pageCount = doc.numPages;
     $("total-page").textContent = pageCount;
     anns = JSON.parse(root.dataset.anns || "[]");
+    // 把归一后的布局写回 #reader：模板里的 data-layout 只反映"上次保存的值"，
+    // 当值为空/非法时 JS 归一成 scroll，此处必须同步，否则下面的 CSS
+    // #reader[data-layout=...] 与实际 layout 变量不一致。
+    root.dataset.layout = layout;
     buildPlaceholders();
     bindUI();
     applyTheme();
@@ -219,6 +223,10 @@ function rerenderAll() {
 
 function setLayout(l) {
   layout = l;
+  // 必须写回 dataset：#reader[data-layout=single|double] 的十几行 CSS
+  // （单页 position:absolute、双页 grid）只认这个属性。原先只改了变量，
+  // 导致"切布局要刷新才生效"——刷新后由模板 data-layout 渲染才正确。
+  root.dataset.layout = l;
   $("layout-btn").textContent = { scroll: "⇔", double: "⧉", single: "📄" }[l];
   rerenderAll(); saveProgressSoon();
 }

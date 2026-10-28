@@ -112,8 +112,39 @@ def common_ctx(request: Request, d: DB, **kw) -> dict:
 ANN_KINDS = {"highlight", "underline", "note"}
 COLOR_RE = re.compile(r"^#[0-9a-fA-F]{6}$")
 LAYOUTS = {"scroll", "double", "single"}
-THEMES = {"light", "night"}
+# sepia 必须在此白名单内：reader.js 主题按钮按 light→sepia→night 循环，
+# reader.css 也已实现 [data-theme=sepia] 样式；此前漏写导致纸色护眼主题
+# 每次保存都被静默降级成 light（刷新即丢失）。
+THEMES = {"light", "sepia", "night"}
 QUALITIES = {"auto", "pdf", "orig", "mid", "thumb"}
+
+# 标注/书签正文长度上限，与 core/db.py 的截断位（text[:500]/note 无截断）对齐。
+# DB 层是最后一道保险，API 层也必须挡：否则 10MB 请求体会先被完整 JSON 解析
+# 进内存，再被 DB 截断——既浪费内存又让调用方误以为数据已完整落库。
+ANN_TEXT_MAX = 500          # 与 DB add_annotation/update_annotation 的 text[:500] 一致
+BOOKMARK_NOTE_MAX = 300     # 与前端/既有行为一致的备注上限
+# 页码上限：仅用于「完全没有页码信息」时的兜底；单本古籍哪怕上万页也够用，
+# 同时挡住 2**62 这类天量整数写进 reading_progress / annotations。
+PAGE_MAX = 100000
+
+
+async def _json_body(request: Request):
+    """统一读取 JSON body：非法/空/非对象 body 返回 400 而不是 500。
+
+    返回 (body, err)：正常时 err 为 None；异常时 body 为 None、err 为可直接
+    返回的 JSONResponse。无此封装时 `await request.json()` 遇到非 JSON 会抛
+    JSONDecodeError，经由 uvicorn 变成 500 + 满屏 traceback（实测 5 个接口
+    全部如此），前端 `await r.json()` 也会因收到 HTML 错误页而抛 SyntaxError。
+    """
+    try:
+        body = await request.json()
+    except (json.JSONDecodeError, UnicodeDecodeError, ValueError):
+        return None, JSONResponse({"error": "请求体不是合法 JSON"},
+                                  status_code=400)
+    if not isinstance(body, dict):
+        return None, JSONResponse({"error": "请求体必须是 JSON 对象"},
+                                  status_code=400)
+    return body, None
 
 
 def _ann_fields(body: dict) -> tuple:
@@ -283,6 +314,29 @@ def detail(book_id: int, request: Request):
         jobs=[dict(j) for j in jobs]))
 
 
+def _max_page(row, total_pages: int) -> int:
+    """阅读器「可信页码上限」；返回 0 表示"未知，不设上限"。
+
+    为什么需要它：`/read/{id}?p=` 直接把 URL 参数写进阅读进度并渲染进
+    `data-page`，此前完全不校验，`?p=99999999` 会原样落库、把远程/局域网
+    任何人一键把这本书的阅读进度顶到天量。
+
+    上限来源有两条，取较大者：
+      ① meta.json 的 pages（下载时记录的真实页数，最权威）；
+      ② books.page_count（元数据里的卷页数，meta.json 缺失时兜底——某些
+         snapshot 导入的旧书根本没有 meta.json）。
+
+    两者都没有（total_pages=None 且 page_count 为空）时**返回 0，即不设上限**，
+    而不是臆造一个很小的值：这个场景通常发生在 PDF 已在线但元数据还不全，
+    若强行 clamp 到 1 会把"合法页码"全部改成 1，等于把跳转功能弄坏。
+    这种情形下用 PAGE_MAX 作为宽松兜底（见 reader()），足以挡住天量整数；
+    真正的合法性最终由前端 PDF.js 的 doc.numPages 裁决（返回首页）。
+    """
+    cands = [n for n in (total_pages, row["page_count"] if row else 0)
+             if n and n > 0]
+    return min(max(cands), PAGE_MAX) if cands else 0
+
+
 # ---------------------------------------------------------------- 阅读器
 @app.get("/read/{book_id}", response_class=HTMLResponse)
 def reader(book_id: int, request: Request, p: int = 0):
@@ -305,7 +359,10 @@ def reader(book_id: int, request: Request, p: int = 0):
     prog = d.get_progress(book_id)
     prog_d = dict(prog) if prog else {}
     if p:                       # URL 指定页码优先（书签/检索跳转）
-        prog_d.update(page=p, scroll_pct=0)
+        # clamp 到可信上限，越界回落 1；上限未知（0）时用 PAGE_MAX 宽松兜底，
+        # 真正的合法性由前端 doc.numPages 再裁决一次（越界回落首页）。
+        hi = _max_page(row, total_pages) or PAGE_MAX
+        prog_d.update(page=min(max(p, 1), hi), scroll_pct=0)
     bms = [dict(b) for b in d.list_bookmarks(book_id)]
     anns = [dict(a) for a in d.list_annotations(book_id)]
     return templates.TemplateResponse(request, "read.html", common_ctx(
@@ -317,15 +374,22 @@ def reader(book_id: int, request: Request, p: int = 0):
 @app.post("/api/progress/{book_id}")
 async def api_progress(book_id: int, request: Request):
     d = get_db()
+    # 先解析 body 再查书：原来先 get_book 提前 return 404，会让"非法 JSON"
+    # 在不同 book_id 下返回 400/404 两种结果（顺序依赖的偶然行为）。
+    # 统一成"格式错 → 400；书不存在 → 404"，语义才稳定可测。
+    body, err = await _json_body(request)
+    if err:
+        return err
     if not d.get_book(book_id):
         return JSONResponse({"error": "书不存在"}, status_code=404)
-    body = await request.json()
     try:
         page = max(1, int(body.get("page") or 1))
         scroll_pct = min(max(float(body.get("scroll_pct") or 0), 0), 1)
         zoom = min(max(float(body.get("zoom") or 1), 0.4), 3)
     except (TypeError, ValueError):
         return JSONResponse({"error": "参数不合法"}, status_code=400)
+    # 页码必须有上界，否则任意大整数会原样落到 reading_progress.page
+    page = min(page, PAGE_MAX)
     layout = str(body.get("layout") or "scroll")
     theme = str(body.get("theme") or "light")
     d.save_progress(book_id, page, scroll_pct, zoom,
@@ -343,14 +407,19 @@ def api_bookmarks(book_id: int):
 @app.post("/api/bookmarks")
 async def api_bookmark_add(request: Request):
     d = get_db()
-    body = await request.json()
+    body, err = await _json_body(request)
+    if err:
+        return err
     try:
         book_id, page = int(body["book_id"]), int(body["page"])
     except (KeyError, TypeError, ValueError):
         return JSONResponse({"error": "参数不合法"}, status_code=400)
+    if not 1 <= page <= PAGE_MAX:
+        return JSONResponse({"error": "页码不合法"}, status_code=400)
     if not d.get_book(book_id):
         return JSONResponse({"error": "书不存在"}, status_code=404)
-    d.add_bookmark(book_id, page, str(body.get("note") or "")[:300])
+    d.add_bookmark(book_id, page,
+                   str(body.get("note") or "")[:BOOKMARK_NOTE_MAX])
     return {"ok": True}
 
 
@@ -369,7 +438,9 @@ def api_annotations(book_id: int):
 @app.post("/api/annotations")
 async def api_annotation_add(request: Request):
     d = get_db()
-    body = await request.json()
+    body, err = await _json_body(request)
+    if err:
+        return err
     try:
         book_id, page = int(body["book_id"]), int(body["page"])
         x0, y0, x1, y1 = (min(max(float(body[k]), 0), 1) for k in
@@ -378,21 +449,28 @@ async def api_annotation_add(request: Request):
             return JSONResponse({"error": "选区太小"}, status_code=400)
     except (KeyError, TypeError, ValueError):
         return JSONResponse({"error": "参数不合法"}, status_code=400)
+    if not 1 <= page <= PAGE_MAX:
+        return JSONResponse({"error": "页码不合法"}, status_code=400)
     if not d.get_book(book_id):
         return JSONResponse({"error": "书不存在"}, status_code=404)
     kind, color = _ann_fields(body)
+    # 正文超长直接截断（不报 400）：标注是随手记录，截断比让整次保存失败更友好；
+    # 上限与 DB 层 text[:500] 一致，避免"前端存了 10MB、库里只剩 500 字"的错觉。
     ann_id = d.add_annotation(book_id, page, kind,
                               x0, y0, x1, y1, color,
-                              str(body.get("text") or ""))
+                              str(body.get("text") or "")[:ANN_TEXT_MAX])
     return {"ok": True, "id": ann_id}
 
 
 @app.patch("/api/annotations/{ann_id}")
 async def api_annotation_edit(ann_id: int, request: Request):
     d = get_db()
-    body = await request.json()
+    body, err = await _json_body(request)
+    if err:
+        return err
     kind, color = _ann_fields(body)
-    d.update_annotation(ann_id, kind, color, str(body.get("text") or ""))
+    d.update_annotation(ann_id, kind, color,
+                        str(body.get("text") or "")[:ANN_TEXT_MAX])
     return {"ok": True}
 
 
@@ -405,14 +483,28 @@ def api_annotation_del(ann_id: int):
 @app.post("/api/reading-tick")
 async def api_reading_tick(request: Request):
     d = get_db()
-    body = await request.json()
+    body, err = await _json_body(request)
+    if err:
+        return err
     try:
         d.reading_tick(int(body["book_id"]),
                        min(max(float(body.get("seconds") or 0), 0), 120),
-                       int(body.get("page") or 0))
+                       min(max(int(body.get("page") or 0), 0), PAGE_MAX))
     except (KeyError, TypeError, ValueError):
         return JSONResponse({"error": "参数不合法"}, status_code=400)
     return {"ok": True}
+
+
+def _md_escape(s: str) -> str:
+    """Markdown 导出用的 HTML 转义（审查 B P1：导出文件里的 XSS）。
+
+    Markdown 允许内联 HTML，多数渲染器（GitHub、VS Code 预览、Obsidian）
+    会**原样执行** `<img src=x onerror=...>`。标注正文来自用户输入、
+    title/item_url 来自远端元数据，都不可信，因此导出时必须转义。
+    先转 `&` 再转 `<>`，否则 `&lt;` 会被二次转义成 `&amp;lt;`。
+    """
+    return (str(s).replace("&", "&amp;").replace("<", "&lt;")
+            .replace(">", "&gt;"))
 
 
 @app.get("/export/annotations/{book_id}.md")
@@ -421,18 +513,20 @@ def export_annotations_md(book_id: int):
     row = d.get_book(book_id)
     if not row:
         return HTMLResponse("未找到该书", status_code=404)
-    title = row["alt_title"] or row["title"]
+    title = _md_escape(row["alt_title"] or row["title"])
     lines = [f"# 《{title}》 标注导出", "",
-             f"- 来源：{row['item_url']}",
+             f"- 来源：{_md_escape(row['item_url'])}",
              f"- 导出时间：{utcnow()}", ""]
     n = 0
     for a in d.list_annotations(book_id):
         n += 1
         kind = {"highlight": "高亮", "underline": "下划线",
                 "note": "备注"}.get(a["kind"], a["kind"])
-        lines.append(f"## 第 {a['page']} 页 · {kind}")
+        lines.append(f"## 第 {a['page']} 页 · {_md_escape(kind)}")
         if a["text"]:
-            lines.append(f"> {a['text']}")
+            # 多行正文逐行加 "> "，否则后续行会脱离引用块（甚至变成标题/代码块）
+            for ln in str(a["text"]).splitlines() or [""]:
+                lines.append(f"> {_md_escape(ln)}")
         lines.append("")
     if not n:
         lines.append("（暂无标注）")
@@ -476,7 +570,9 @@ def review(request: Request, q: str = "", source: str = "",
 @app.post("/api/review")
 async def api_review(request: Request):
     d = get_db()
-    body = await request.json()
+    body, err = await _json_body(request)
+    if err:
+        return err
     action = body.get("action")
     try:
         ids = [int(i) for i in (body.get("ids") or [])]
@@ -521,15 +617,27 @@ async def api_review(request: Request):
 @app.post("/api/retry")
 async def api_retry(request: Request):
     d = get_db()
-    body = await request.json()
+    body, err = await _json_body(request)
+    if err:
+        return err
     try:
         book_id = int(body.get("id") or 0)
     except (TypeError, ValueError):
         return JSONResponse({"error": "id 不合法"}, status_code=400)
     row = d.get_book(book_id)
-    if not row or row["status"] not in ("failed", "dead"):
-        return JSONResponse({"error": "仅 failed/dead 可重试"}, status_code=400)
-    d.set_status(book_id, "queued")
+    if not row:
+        return JSONResponse({"error": "书不存在"}, status_code=404)
+    # 可重试的三类（审查 A P0-3 / P1-2）：
+    #   failed / dead          —— 下载失败、已死（人工再给一次机会）
+    #   done + needs_topup=1   —— 部分卷完成的已归档书，手动补缺卷
+    # dead 的重试必须 reset_attempt：attempt 上限已下沉到 claim_and_start 的
+    # SQL（attempt < MAX_ATTEMPTS），不归零则重排后仍永远卡在上限之外，
+    # 改了等于没改。补齐路径不需要归零（补齐不递增 attempt）。
+    is_topup = bool(row["needs_topup"]) and row["status"] == "done"
+    if row["status"] not in ("failed", "dead") and not is_topup:
+        return JSONResponse({"error": "仅 failed/dead 或待补齐书可重试"},
+                            status_code=400)
+    d.set_status(book_id, "queued", reset_attempt=True)
     d.log(f"手动重排: #{book_id}")
     return {"ok": True}
 
@@ -547,7 +655,11 @@ def api_fetch(payload: dict):
     except (AttributeError, TypeError, ValueError):
         return JSONResponse({"error": "id 不合法"}, status_code=400)
     row = d.get_book(book_id)
-    if not row or row["status"] != "queued":
+    # done+needs_topup=1（部分完成待补齐）也允许手动触发：这类书 status 是
+    # done、并不在 queued 队列里，但确实需要一次下载来补缺卷（批 2 C1）。
+    # claim_and_start 对 done+needs_topup 有专门的认领分支，会先置 running。
+    is_topup = bool(row["needs_topup"]) and row["status"] == "done" if row else False
+    if not row or (row["status"] != "queued" and not is_topup):
         return JSONResponse({"error": "书不存在或不在 queued"}, status_code=400)
     src = row["source_id"]
     with d.connect() as conn:
@@ -746,7 +858,22 @@ def api_links():
 
 @app.get("/api/health")
 def health():
-    return {"ok": True, "ts": utcnow(), "db": os.path.exists(DB_PATH)}
+    """容器健康检查（Dockerfile HEALTHCHECK / compose 依赖）。
+
+    必须真正摸一次库：原来只看 os.path.exists(DB_PATH) 且 HTTP 恒为 200，
+    库被删/损坏/置于不可写目录时仍然报健康，HEALTHCHECK 形同虚设。
+    现在执行 SELECT 1 探测，失败返回 503——urllib.urlopen 遇非 2xx 会抛
+    HTTPError，HEALTHCHECK 据此判 unhealthy，容器才会被重启。
+    """
+    try:
+        d = get_db()
+        with d.connect() as conn:
+            conn.execute("SELECT 1").fetchone()
+        return {"ok": True, "ts": utcnow(), "db": True}
+    except Exception as e:      # noqa: BLE001 —— 健康检查不能自己 500
+        return JSONResponse({"ok": False, "ts": utcnow(), "db": False,
+                             "error": f"数据库不可用: {e}"[:200]},
+                            status_code=503)
 
 
 @app.get("/api/stats")
