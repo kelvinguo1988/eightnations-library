@@ -1,21 +1,92 @@
+# ============================================================
 # 八国联军图书馆 · QNAP NAS 部署
-# Container Station: 应用程序 -> 创建 -> 粘贴本文件（自动拉取 ghcr 镜像，无需在 NAS 构建）
-# 数据落盘: /share/Container/eightnations/data（按实际共享目录调整）
+#
+# 用法：Container Station → 应用程序 → 创建 → 粘贴本文件
+#       （自动拉取 ghcr 镜像，无需在 NAS 构建）
+# 数据落盘：/share/Container/eightnations/data（按实际共享目录调整）
+#
+# ⚠️ 安全边界（务必先读）
+#   1) 本应用**没有任何鉴权**：只要能访问 8080 端口，就等同于管理员
+#      （可改设置、触发下载、批准/忽略书目、删除标注）。
+#   2) 因此**只允许局域网访问**。切勿在路由器上做 8080 端口映射/UPnP 转发，
+#      也不要用 Tunnel/DDNS 把它暴露到公网。需要远程访问请走
+#      SSH 隧道或带认证的反向代理（如 Caddy/nginx + basic auth）。
+#   3) 容器以 root 运行（原因见 Dockerfile 注释）：挂载目录属主为非 root 时
+#      写入会失败，改非 root 属破坏性变更。
+#   4) 设置页的「目录 URL」会被调度器原样请求，**存在 SSRF 风险**：
+#      只填各大馆的官方域名，不要填内网地址（如 192.168.x.x、169.254.x.x）。
+# ============================================================
 services:
   app:
     image: ghcr.io/kelvinguo1988/eightnations-library:latest
+    # 建议钉版本而非长期跟随 latest，升级变成一次显式动作：
+    #   image: ghcr.io/kelvinguo1988/eightnations-library:0.1.0
     container_name: eightnations
     restart: unless-stopped
+
     ports:
+      # ⚠️ 左侧 host: 绑定 0.0.0.0 = 局域网内任何设备都能访问（且无鉴权）。
+      # 只给自己机器用时建议改成回环地址，通过 SSH 隧道访问：
+      #   - "127.0.0.1:8080:8080"
+      # 或绑定 NAS 的内网 IP：
+      #   - "192.168.1.10:8080:8080"
       - "8080:8080"
+
     volumes:
+      # 绝对路径 bind mount。容器内数据目录由 EIGHTNATIONS_DATA 指定（镜像内已设 /data）。
+      # 注意：宿主机路径不存在时 Docker 会自动创建空目录 → 容器"正常"跑起来但看不到旧书。
+      # 所以部署前请先手工 mkdir -p 该目录（README「QNAP NAS 部署」第 1 步）。
       - /share/Container/eightnations/data:/data
+
     environment:
       - TZ=Asia/Shanghai
       # 调度心跳间隔（秒），默认 900=15 分钟；拉长更保守
       # - EIGHTNATIONS_HEARTBEAT=1800
       # 目录收割每心跳预算（条），默认 40
       # - EIGHTNATIONS_CATALOG_BUDGET=20
+
+    # ---------- 健康检查 ----------
+    # 依赖 web/app.py 的 /api/health：DB 真正可查询时返回 200 且 ok=true，
+    # 否则返回 **503**（2026-10 起该接口不再恒返回 200）。
+    # 覆盖的故障：数据库文件损坏/被锁/磁盘满到写不进 WAL。
+    # start_period 给首次建库（含老库 ALTER 迁移）留出时间。
+    healthcheck:
+      test:
+        - "CMD"
+        - "python3"
+        - "-c"
+        # 必须写成**单行**：compose 的 YAML 把多行字符串折叠成一行（换行变空格），
+        # 多行 Python 会变成语法错误，而"语法错误 = 退出码 1"会让健康检查
+        # 看起来永远失败/永远pass，非常容易误判（实测踩过）。
+        # 语义：200 且 ok/db 都为 true → 0；503 或不可达 → 1。
+        - "import json,sys,urllib.request as u;d=json.load(u.urlopen('http://127.0.0.1:8080/api/health',timeout=8));sys.exit(0 if (d.get('ok') and d.get('db')) else 1)"
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+    # ---------- 资源限制（NAS 场景必设） ----------
+    # NAS 上通常还跑着监控/相册/下载等一堆容器；不给上限时一个内存泄漏
+    # 或一次大批量下载就可能把整机内存/CPU 吃满，连带影响其它服务。
+    # 数值按"小主机"保守给，按 NAS 实际内存调整（建议 ≤ 总内存 1/3）。
+    mem_limit: 2g
+    memswap_limit: 2g          # 禁用 swap 放大（避免 OOM 前长时间抖动）
+    cpus: 2.0
+    pids_limit: 512            # 防 fork 风暴
+    ulimits:
+      nofile:
+        soft: 4096
+        hard: 8192
+
+    # ---------- 加固 ----------
+    # 容器根文件系统只读：应用只写 /data（挂载卷）与 /tmp（tmpfs）。
+    # 万一被拿下，攻击者也无法改写镜像内的程序文件。
+    read_only: true
+    tmpfs:
+      - /tmp:size=128m         # 下载分块/临时文件的落点
+    security_opt:
+      - no-new-privileges:true
+
     # 容器日志限量：NAS 上 json-file 默认无上限，长跑会写满系统盘
     logging:
       driver: json-file
@@ -24,3 +95,4 @@ services:
         max-file: "3"
 
 # 如需本地构建（而非拉取镜像）：将 image: 行替换为 build: .
+# 注意本地构建时 .dockerignore 已排除 data/，不会把 700MB+ 数据打进镜像。

@@ -54,11 +54,13 @@ python3 -m uvicorn web.app:app --host 0.0.0.0 --port 8080      # Web 前端
 ① 发现（目录收割/快照导入）      ② 审核（人工筛选）        ③ 下载（计划任务）      ④ 阅读
 discovered ──approve──▶ queued ──fetch──▶ running ──▶ done
      │                                  │
-     └──ignore──▶ ignored               └──失败──▶ failed(重试5次)──▶ dead
+     └──ignore──▶ ignored               └──失败──▶ failed(重试 5 次)──▶ dead
 ```
 
 - **发现**只产生 `discovered` 记录，**不会自动下载**；
 - 审核批准后进 `queued`，由调度器按各馆配额消化；
+- 失败按次数重试，**上限 5 次**后转 `dead`（人工重试会重置计数）；被限流时冷却 30 分钟后自动续传；
+- **多卷书部分成功**时标记为"已归档但欠卷"，由调度器在队尾自动补齐，不会留下永久缺卷；
 - 下载页级断点续传，进程崩溃自动恢复，PDF 带页数校验与 sha256。
 
 ## 详细使用方法
@@ -174,7 +176,11 @@ tile.loc.gov 1s、www.loc.gov 3s、日本站 2.5s、gallica 2s，外加随机抖
 
 镜像：`ghcr.io/kelvinguo1988/eightnations-library:latest`（amd64+arm64，Actions 随 main 自动构建）。
 
-1. File Station 建共享文件夹 `/share/Container/eightnations/data`
+> **安全提醒**：应用**没有鉴权**，`8080` 只应留在局域网。详见底部
+> [已知限制与安全边界](#已知限制与安全边界)。
+
+1. File Station / SSH 建共享文件夹 `/share/Container/eightnations/data`
+   （**必须先建**：宿主机路径不存在时 Docker 会自动建成空目录，容器"正常"跑起来但看不到旧书）
 2. Container Station → 应用程序 → 创建 → 粘贴仓库里的 `docker-compose.yml` → 创建
 3. 打开 `http://<NAS_IP>:8080`；设置页启用想要的书馆
 
@@ -183,7 +189,7 @@ tile.loc.gov 1s、www.loc.gov 3s、日本站 2.5s、gallica 2s，外加随机抖
 ```bash
 mkdir -p /share/Container/eightnations/data
 cd /share/Container/eightnations
-curl -O https://raw.githubusercontent.com/kelvinguo1988/eightnations-library/main/docker-compose.yml
+curl -O https://raw.githubusercontent.com/kelvinguo1988/eightnations-library/v0.1.0/docker-compose.yml
 docker compose up -d
 ```
 
@@ -194,7 +200,15 @@ rsync -av "/Users/<你>/Documents/coding/八国联军图书馆/data/" \
   admin@<NAS_IP>:/share/Container/eightnations/data/
 ```
 
-**版本发布**：`git tag v0.1 && git push --tags` 额外产出 `:0.1` 镜像，`latest` 跟随 main。
+**版本发布**：`git tag v0.1.0 && git push --tags` 额外产出 `:0.1.0` 镜像。
+
+> **`latest` 的风险**：`latest` 会随每次 `main` 合并而重写，意味着
+> `docker compose pull && up -d` 会在无人确认的情况下换掉正在运行的版本。
+> 生产环境建议把 `docker-compose.yml` 的 `image:` 钉到具体版本（如 `:0.1.0`），
+> 升级时显式改这一行 —— 出了问题也方便按 tag 回滚。
+
+**容器健康状态**：`docker ps` 里显示 `(healthy)` 才代表数据库真正可查
+（`/api/health` 在 DB 不可用时返回 503）。磁盘满、DB 锁死会体现为 `(unhealthy)`。
 
 ## 数据保存在哪（NAS 路径详解）
 
@@ -244,11 +258,16 @@ docker exec eightnations python3 manage.py doctor
 **⚠️ 真实案例：数据落在 Docker 匿名卷（2026-09-19）**
 
 > **根因**：用 Container Station「创建容器」向导建容器时，若不在"存储"步骤手动添加
-> 卷映射，镜像的 `VOLUME /data` 会让 Docker 自动分配匿名卷——每重建一次换一个新卷。
+> 卷映射，**当时的镜像**声明了 `VOLUME /data`，Docker 就会自动分配匿名卷——
+> 每重建一次换一个新卷。
 > **正确姿势是用「应用程序」粘贴 compose 创建**（volumes 段自动生效），见下方迁移步骤第 4 步。
+>
+> **现状（2026-10 起）**：`VOLUME /data` 已从 Dockerfile **移除**（见 `Dockerfile`
+> 中的说明）。现在忘记挂载时数据直接落在容器可写层，容器重建即丢 —— 虽然同样会丢，
+> 但至少不会在多份匿名卷之间"看起来有数据"地漂移，失败模式更诚实、更好排查。
 
-若容器创建时**没有**显式挂载宿主机目录，镜像的 `VOLUME /data` 声明会让 Docker
-自动分配一个**匿名卷**，数据实际存放在：
+若容器创建时**没有**显式挂载宿主机目录（**历史镜像**声明了 `VOLUME /data` 的情况），
+Docker 会自动分配一个**匿名卷**，数据实际存放在：
 
 ```
 /Container/container-station-data/lib/docker/volumes/<哈希>/_data/books/...
@@ -260,13 +279,36 @@ docker exec eightnations python3 manage.py doctor
 若为匿名卷会**红色警告并给出迁移命令**；doctor 也会报此问题。
 
 **迁移到固定路径（推荐：一键脚本）**——自动发现旧卷、停止旧容器、拷贝、
-用固定路径重建、自检，全程一条命令：
+用固定路径重建、自检。
+
+> ⚠️ **这个脚本以 root 身份操作宿主机**（停容器、`docker rm`、写 `/share`）。
+> 请**先下载、读一遍、干跑**，确认无误再真跑。脚本默认就是干跑模式，
+> 必须显式加 `--yes` 才会动手 —— 这是 2026-10 加固后的行为。
 
 ```bash
-curl -O https://raw.githubusercontent.com/kelvinguo1988/eightnations-library/main/migrate-nas.sh
-sh migrate-nas.sh
-# 可选自定义路径: sh migrate-nas.sh /share/其他路径
+# ① 下载固定版本（不要用 main：main 随时会变，这等于是"无校验地以 root 执行远程代码"）
+VER=v0.1.0
+curl -O https://raw.githubusercontent.com/kelvinguo1988/eightnations-library/$VER/migrate-nas.sh
+shasum -a 256 migrate-nas.sh          # 与 Release 页公布的 sha256 比对
+
+# ② 读一遍（约 300 行，重点看 DEST 校验与 docker rm 的位置）
+less migrate-nas.sh
+
+# ③ 干跑：只打印将要执行的动作，不停容器、不写盘
+sh migrate-nas.sh --dry-run
+
+# ④ 确认无误后真跑
+sh migrate-nas.sh --yes
+# 可选自定义路径（必须位于 /share/ 之下）:
+sh migrate-nas.sh --yes /share/其他路径
 ```
+
+脚本内置的护栏（防止"迁移"变成"删库"）：
+- `DEST` 必须是 `/share/` 下的绝对路径，**禁止 `/`、`..`、`/tmp/x` 等**
+  （早期版本未校验，`DEST=/` 会让解包写到系统分区）；
+- 所有 `rm -rf` / `tar -x` 前校验变量非空且以 `DEST` 开头；
+- 解包前扫描 tar 成员，发现绝对路径或 `..` 直接拒绝；
+- **先拷后删**：数据落地并通过校验（db 非空 + PDF 数量一致）之前，绝不 `docker rm`。
 
 <details><summary>手动分步方式（点开）</summary>
 <p>（在 NAS SSH 中执行一次；先迁移、后删除，最安全）：
@@ -283,7 +325,7 @@ ls /share/Container/eightnations/data
 #    也可用「创建容器」向导，但必须在"存储"步骤手动添加映射：
 #    主机路径 /share/Container/eightnations/data → 容器路径 /data）
 cd /share/Container/eightnations
-curl -O https://raw.githubusercontent.com/kelvinguo1988/eightnations-library/main/docker-compose.yml
+curl -O https://raw.githubusercontent.com/kelvinguo1988/eightnations-library/v0.1.0/docker-compose.yml
 docker compose up -d
 # ⑤ 校验：doctor 全绿 + 设置页存储面板显示"✅ 已绑定宿主机固定路径"
 docker exec eightnations python3 manage.py doctor
@@ -326,6 +368,51 @@ docker exec eightnations python3 manage.py doctor                  # 校验
 | Web 手动触发与调度器同时抓同一本 | 已有原子认领与跨进程节流，无需处理 |
 | ghcr 拉取慢 | 境内网络常见，重试或配置镜像加速 |
 
+## 已知限制与安全边界
+
+> 把"没做到的事"写清楚，比让使用者以为已经安全更重要。以下均为**当前实现的如实描述**。
+
+### 安全
+
+| 项 | 现状 | 影响与约定 |
+|----|------|-----------|
+| **鉴权** | **没有**。全站无登录、无 Token、无用户系统 | 能访问 `8080` 端口的设备**等同于管理员**（可改设置、触发下载、批准/忽略书目、删标注） |
+| **网络暴露** | `docker-compose.yml` 默认 `8080:8080`（0.0.0.0） | **仅限局域网**。不要在路由器上做端口映射/UPnP，不要用 DDNS/Tunnel 暴露到公网。远程请用 SSH 隧道或带认证的反代 |
+| **传输** | HTTP 明文 | 同网段可嗅探会话内容（阅读记录、标注） |
+| **运行身份** | 容器内以 **root** 运行 | 挂载目录属主为 root 时的兼容取舍（见 Dockerfile 注释）；已用 `read_only` + `no-new-privileges` + 资源限制缓解 |
+| **SSRF** | 设置页「目录 URL」可填任意 `http(s)://`，调度器会原样请求 | 只填各馆官方域名；**不要填内网地址**（`192.168.*`、`10.*`、`169.254.*`），否则可被用来探测内网 |
+| **CSRF** | 无 CSRF token | 依赖"浏览器同源 + 内网"假设。已采取 POST/JSON + 同源策略，但不构成强防护 |
+| **上传** | `/upload-snapshot` 接受 multipart JSON | 有数量/体积上限，仅写入 `/data/snapshots` |
+| **静态暴露** | `/data/*` 只挂载 `/data/books` | 不含 `db/`、`logs/`，数据库与日志不会被下载 |
+
+**建议的最小加固**（不需要改代码）：
+- compose 里把端口绑到回环或内网 IP：`- "127.0.0.1:8080:8080"` 或 `- "192.168.1.10:8080:8080"`；
+- 若确需公网访问，前面加一层带认证的 HTTPS 反向代理；
+- `docker-compose.yml` 已启用 `read_only`、`no-new-privileges`、`mem_limit` 等限制，**不要随手删掉**。
+
+### 运维
+
+- **依赖未锁定**：`requirements.txt` 只有版本区间，没有 lock/hash → 同一 commit 在不同时间构建
+  可能装到不同小版本（不可复现）。约定：升级或重建镜像前先跑回归测试 + 冒烟 `/api/health`。
+- **镜像 tag**：`latest` 跟随 `main`，每合并一次就变。建议生产环境把 compose 里的
+  `image:` 钉到具体版本（如 `:0.1.0`），让升级变成显式动作。
+- **健康检查语义**：`/api/health` 在数据库不可用时返回 **503**（不是永远 200）。
+  `docker ps` 里的 `(healthy)` 才真正代表"库能查"。磁盘满、DB 锁死会体现为 unhealthy。
+- **日志**：web 走容器 stdout（`json-file` 已限 `10m × 3`）；scheduler 写
+  `/data/logs/scheduler.log`，超 20MB 自动轮转一代。
+
+### 测试与质量现状
+
+- 回归测试为**脚本式断言**（`tests/test_regressions.py`），覆盖数据筛选、繁体转换、
+  BnF SRU/IIIF 解析、PDF 流式合并、jobs 配额、租约回收、路径穿越、下载完整性等核心路径；
+- **未覆盖**：Web 路由与模板渲染、API 输入校验、并发/多进程、前端 JS（`reader.js`）——
+  这些区域的回归目前只能靠人工点检；
+- 已知测试的弱点：文件名/断言偏宽松（例如空库上的幂等断言、`>=` 而非精确值），
+  且有一次"改变核心逻辑仍然全绿"的变异实验记录（见 `docs/review/D-testdeploy.md` §1.3）。
+  改测试与补覆盖是后续工作项。
+
+---
+
 ## 法律与采集约定
 
 - 仅采集 **rights 为公有领域/无已知版权限制**的条目；`meta.json` 记录原馆链接与校验和
@@ -342,15 +429,35 @@ sites/    base.py(契约) · loc.py · na_jp.py · bnf.py（每馆一个适配�
 web/      FastAPI+Jinja2 前端（书架/书城/阅读器/详情/审核/任务/设置）+ static
           （含 PDF.js 本地自托管 reader.js/reader.css）
 tools/    loc_snapshot.py(目录快照半自动) · loc_fill_details.py(补条目详情)
-fixtures/ 真实快照样例（回归测试用）
-manage.py 管理CLI    scheduler.py 调度守护    Dockerfile/compose/entrypoint.sh
+fixtures/ 真实快照样例（回归测试用；约 1.2MB，已入库）
+tests/    test_regressions.py(离线回归)
+manage.py 管理CLI    scheduler.py 调度守护
+Dockerfile / docker-compose.yml / entrypoint.sh / migrate-nas.sh（部署与迁移）
+docs/     DESIGN.md(架构) · READER-DESIGN.md · PLAN-*.md · review/(审查与修复报告)
 ```
+
+> 两个根目录脚本 `digital_archives_to_pdf.py` / `official_pdf_by_cids.py` 是早期一次性
+> 实验脚本，其能力已并入 `sites/na_jp.py` 与 `core/pdfbuild.py`，**不参与运行、不推荐使用**
+> （前者缺 `import json`、使用浏览器 UA 并 6 线程并发，正是当年被封的诱因）。计划删除。
+> 它们也不在镜像里（`.dockerignore` 已排除）。
 
 ## 开发状态
 
 书城一期（R1 阅读器 + R2 书架/书城 + R3 标注/主题/统计）已上线；扩馆 M6 进行中
 （BnF ✅）。下一期 R4：划词区域 OCR（Tesseract）+ 查词跳转 + 跨书 FTS 检索 + 朗读
-（设计见 docs/READER-DESIGN.md）。四轮代码审查累计修复 19 项（并发竞态、崩溃恢复、
-PDF 规范合规、跨进程节流、移动端自适应等），关键路径均有离线回归测试。
-回归测试：`python3 tests/test_regressions.py`（9 组，全部离线）；
-贡献前另跑 `python3 -m py_compile core/*.py sites/*.py`。
+（设计见 docs/READER-DESIGN.md）。四轮代码审查累计修复 31 项（并发竞态、崩溃恢复、
+PDF 规范合规、跨进程节流、移动端自适应、下载完整性、弱成功补齐、XSS 等），
+关键路径均有离线守卫测试。
+
+### 测试与静态检查（全部离线，零联网、不读宿主 `data/`）
+
+```bash
+python3 -m pytest tests/ -q          # 95 个用例，约 2 秒
+python3 tests/mutation_check.py      # 变异测试：12/12 被杀死（证明测试真能抓 bug）
+python3 -m pyflakes core web sites tools scheduler.py manage.py tests conftest.py
+```
+
+- `pytest` 用例数为 0 会被 CI 判失败（防"no tests ran 却 exit 0"的假绿）。
+- `mutation_check.py` 会临时改坏业务代码再跑测试，**变异逃逸即说明该行为缺少覆盖**；
+  脚本在 `finally` 里逐字节复原原文件，跑完工作区与运行前一致。
+- CI（`.github/workflows/docker-publish.yml`）在**构建镜像前**跑上述三步，任一失败即不发布。

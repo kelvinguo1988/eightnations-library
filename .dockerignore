@@ -27,11 +27,15 @@ venv/
 index.html
 README.md
 docker-compose.yml
-digital_archives_to_pdf.py
-official_pdf_by_cids.py
 migrate-nas.sh
 tests/
 fixtures/
+
+# 早期一次性实验脚本：能力已并入 sites/na_jp.py 与 core/pdfbuild.py，
+# 不参与运行、计划删除。这里排除是为了确保它们**永远不会**被打进镜像
+# （前者缺 import json、用浏览器 UA 绕节流、6 线程并发）。
+digital_archives_to_pdf.py
+official_pdf_by_cids.py
 
 # 编辑器与系统杂物
 .DS_Store
