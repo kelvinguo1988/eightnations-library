@@ -29,12 +29,14 @@ jobs:
           python-version: "3.12"
 
       - name: Install dependencies
-        # requirements.txt 只列镜像运行时依赖；playwright / pillow / pytest 属
-        # 宿主机工具与测试依赖（刻意不进镜像），测试环境显式补
+        # requirements.txt 只列镜像运行时依赖；playwright / pillow / pytest /
+        # httpx 属宿主机工具与测试依赖（刻意不进镜像），测试环境显式补。
+        # httpx 是 starlette TestClient 的必需依赖：不装则 web 用例全部在
+        # fixture setup 阶段报 ModuleNotFoundError（不是测试失败，是环境缺失）。
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          pip install "pillow>=9.0" pytest pyflakes
+          pip install "pillow>=9.0" pytest pyflakes httpx
 
       - name: Syntax check (py_compile)
         run: |

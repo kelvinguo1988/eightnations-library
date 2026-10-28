@@ -24,7 +24,10 @@ python-multipart>=0.0.9
 # ---- 以下不进镜像（宿主机工具与测试依赖，按需手工安装） ----
 # 目录快照工具 tools/loc_snapshot.py --headed 半自动过盾：
 #   pip install "playwright>=1.40" && playwright install chromium
-# 回归测试 tests/test_regressions.py 生成样张 JPEG（CI 的 test job 会装）：
-#   pip install "pillow>=9.0"
+# 跑测试（pytest / 守卫用例 / 变异检查），CI 的 test job 会装：
+#   pip install pytest pyflakes "pillow>=9.0" httpx
+#   * pillow：conftest.py 的 jpeg_factory 生成样张
+#   * httpx ：starlette TestClient 的必需依赖，不装则 web 用例在 fixture
+#             setup 阶段直接 ModuleNotFoundError（2026-10 CI 实际踩到）
 
 # 调度器为纯标准库实现（scheduler.py），无额外依赖
